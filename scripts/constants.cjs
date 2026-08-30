@@ -3,7 +3,11 @@
 const path = require('path');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
-const MCPB_FILE = 'MediaWiki-MCP-Server.mcpb';
+// mcpb names the packed artifact after the repo directory (e.g.
+// MediaWiki-MCP-Server.mcpb upstream, mediawiki-mcp-server.mcpb on a
+// differently-named fork); deriving it keeps the bundle steps working
+// under any repo name instead of hardcoding the upstream's.
+const MCPB_FILE = path.basename(ROOT_DIR) + '.mcpb';
 const MANIFEST_FILE = 'manifest.json';
 
 module.exports = {
