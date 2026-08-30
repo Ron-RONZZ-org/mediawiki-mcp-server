@@ -27,7 +27,7 @@ Every tool that operates on a wiki accepts an optional `wiki` argument naming th
 | `list-wikis` | List every configured wiki — its key, sitename, server, whether it is read-only or the default, whether it is reachable, which extension-gated tools work on it, and, for an OAuth-configured wiki, its authorization server. Disabled when fewer than two wikis are configured. |
 | `parse-wikitext` | Render wikitext to HTML without saving. Returns parse warnings, wikilinks, templates, and external URLs. |
 | `search-page` | Search wiki page titles and contents. |
-| `search-page-by-prefix` | Search page titles by prefix. |
+| `search-page-by-prefix` | Search page titles by prefix (namespace-style prefixes like `RonzzIT:` are resolved). |
 | `whoami` | Report the identity the current session is authenticated as on the targeted wiki — username, whether it is anonymous, and group memberships (optionally user rights). |
 
 #### Page writes
@@ -103,7 +103,7 @@ Each pack's tools register only on wikis where its extension is installed.
 
 | Name | Description |
 |---|---|
-| `wikibase-search-entities` | Find items and properties by label or alias. |
+| `wikibase-search-entities` | Find items and properties by label or alias (prefix, or substring via `mode=contains`). |
 | `wikibase-get-entity` | Read one entity's terms and statements, with referenced IDs resolved to labels. |
 | `wikibase-query` | Run a SPARQL query against the wiki's query service. Offered only for a repository whose siteinfo publishes one. |
 | `wikibase-edit-entity` | Create or change an entity from Wikibase entity JSON. Requires the `edit` right. |

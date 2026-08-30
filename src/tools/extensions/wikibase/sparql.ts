@@ -61,6 +61,35 @@ export async function runSparqlQuery(
 	query: string,
 	maxRows: number,
 ): Promise<SparqlResults> {
+	return parseResults(await postSparql(endpoint, query), maxRows);
+}
+
+/** One solution as a column → value map, '' for unbound variables. */
+export type SparqlRow = Record<string, string>;
+
+export interface SparqlBindingsResult {
+	columns: string[];
+	/** At most `maxRows` solutions; unbound cells are ''. */
+	rows: SparqlRow[];
+	/** Solutions the service returned, which is what `rows` was cut down from. */
+	totalRows: number;
+}
+
+/**
+ * Same transport as runSparqlQuery, but returns the solutions as structured
+ * column→value rows instead of rendered lines, for callers that need the
+ * values (an id, a label) rather than display text. Never sends ASK queries;
+ * a boolean answer is treated as malformed.
+ */
+export async function runSparqlBindings(
+	endpoint: string,
+	query: string,
+	maxRows: number,
+): Promise<SparqlBindingsResult> {
+	return parseBindings(await postSparql(endpoint, query), maxRows);
+}
+
+async function postSparql(endpoint: string, query: string): Promise<string> {
 	let body: string;
 	try {
 		body = await postForm(
@@ -75,7 +104,7 @@ export async function runSparqlQuery(
 	} catch (err) {
 		throw classifyQueryFailure(err, endpoint);
 	}
-	return parseResults(body, maxRows);
+	return body;
 }
 
 // Bounded by the service's own limit, and cancelled with the MCP request so a
@@ -87,6 +116,40 @@ function querySignal(): AbortSignal {
 }
 
 function parseResults(body: string, maxRows: number): SparqlResults {
+	const { boolean, columns, bindings } = parseEnvelope(body);
+	if (boolean !== undefined) {
+		return { columns: [], rows: [], totalRows: 0, boolean };
+	}
+	return {
+		columns,
+		rows: bindings.slice(0, maxRows).map((binding) => renderRow(binding, columns)),
+		totalRows: bindings.length,
+	};
+}
+
+function parseBindings(body: string, maxRows: number): SparqlBindingsResult {
+	const { boolean, columns, bindings } = parseEnvelope(body);
+	if (boolean !== undefined) {
+		// A bindings caller never sends ASK; a boolean answer is malformed here.
+		throw notSparqlResults();
+	}
+	return {
+		columns,
+		rows: bindings.slice(0, maxRows).map((binding) => renderCells(binding, columns)),
+		totalRows: bindings.length,
+	};
+}
+
+/**
+ * Validates the SPARQL results envelope and returns its columns and raw
+ * bindings, or the boolean answer of an ASK query. Anything that is neither
+ * a SELECT nor an ASK envelope is malformed.
+ */
+function parseEnvelope(body: string): {
+	boolean?: boolean;
+	columns: string[];
+	bindings: unknown[];
+} {
 	let envelope: unknown;
 	try {
 		envelope = JSON.parse(body);
@@ -103,7 +166,7 @@ function parseResults(body: string, maxRows: number): SparqlResults {
 	const parsed = envelope as SparqlJson;
 
 	if (typeof parsed.boolean === 'boolean') {
-		return { columns: [], rows: [], totalRows: 0, boolean: parsed.boolean };
+		return { boolean: parsed.boolean, columns: [], bindings: [] };
 	}
 
 	const vars = parsed.head?.vars;
@@ -113,13 +176,7 @@ function parseResults(body: string, maxRows: number): SparqlResults {
 	}
 
 	const columns = vars.filter((name): name is string => typeof name === 'string');
-	// Cut to the row cap before rendering: the solutions past it reach no one, and
-	// a service answering an unLIMITed query returns them by the hundred thousand.
-	return {
-		columns,
-		rows: bindings.slice(0, maxRows).map((binding) => renderRow(binding, columns)),
-		totalRows: bindings.length,
-	};
+	return { columns, bindings };
 }
 
 function notSparqlResults(): SparqlError {
@@ -141,6 +198,19 @@ function renderRow(binding: unknown, columns: string[]): string {
 			return typeof term?.value === 'string' ? term.value.replace(LINE_BREAK, ' ') : '';
 		})
 		.join(' | ');
+}
+
+// The structured sibling of renderRow: one column → value map, same
+// line-break and unbound-cell rules, for callers that read the values.
+function renderCells(binding: unknown, columns: string[]): SparqlRow {
+	const cells = typeof binding === 'object' && binding !== null ? binding : {};
+	const row: SparqlRow = {};
+	for (const column of columns) {
+		// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- SPARQL binding term; narrowed to read `value`
+		const term = (cells as Record<string, { value?: unknown } | undefined>)[column];
+		row[column] = typeof term?.value === 'string' ? term.value.replace(LINE_BREAK, ' ') : '';
+	}
+	return row;
 }
 
 function classifyQueryFailure(err: unknown, endpoint: string): SparqlError {

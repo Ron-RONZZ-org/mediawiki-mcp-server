@@ -4,6 +4,8 @@ import type { Tool } from '../../../runtime/tool.ts';
 import type { ToolContext } from '../../../runtime/context.ts';
 import type { TruncationInfo } from '../../../results/truncation.ts';
 import { LANGUAGE_CODE, resolveLanguage } from './wikibaseApi.ts';
+import { runSparqlBindings, SparqlError } from './sparql.ts';
+import { resolveSiteInfo } from '../../../wikis/siteInfo.ts';
 
 const HARD_LIMIT = 50;
 const DEFAULT_LIMIT = 10;
@@ -16,6 +18,12 @@ const inputSchema = {
 		.string()
 		.min(1)
 		.describe('Text matched against entity labels and aliases, as typed by a person.'),
+	mode: z
+		.enum(['prefix', 'contains'])
+		.default('prefix')
+		.describe(
+			"prefix matches labels and aliases that START with the query, exactly as typed — the instance's term store is case-sensitive, so a case mismatch finds nothing. contains matches labels and aliases that CONTAIN the query, case-insensitively, through the wiki's query service; the WDQS index can lag a few minutes behind a freshly-created item, and wikis without a query service cannot answer contains (use prefix there).",
+		),
 	entityType: z
 		.enum(['item', 'property'])
 		.default('item')
@@ -47,7 +55,7 @@ interface SearchMatch {
 export const wikibaseSearchEntities: Tool<typeof inputSchema> = {
 	name: 'wikibase-search-entities',
 	description:
-		"Finds Wikibase items and properties by label or alias on the targeted wiki, returning one `id — label — description` line per match. Enabled only when the wiki is a Wikibase repository.\n\nEntity IDs are wiki-specific: the same concept has different Q-ids on Wikidata and on a private Wikibase, so IDs are discovered here rather than recalled. Properties carry their datatype in brackets, which tells wikibase-add-statement what a value for them looks like.\n\nMatching is prefix-and-alias based, not full-text: it finds entities whose name starts with the terms, not entities that mention them. To read an entity's statements, use wikibase-get-entity; to select entities by their statements, use wikibase-query.",
+		"Finds Wikibase items and properties by label or alias on the targeted wiki, returning one `id — label — description` line per match. Enabled only when the wiki is a Wikibase repository.\n\nEntity IDs are wiki-specific: the same concept has different Q-ids on Wikidata and on a private Wikibase, so IDs are discovered here rather than recalled. Properties carry their datatype in brackets, which tells wikibase-add-statement what a value for them looks like.\n\nMatching is prefix-based by default: it finds entities whose name starts with the terms, not entities that mention them, and the instance term store is case-sensitive — 0 hits proves nothing about entities whose names merely contain the query. Set mode=contains for a case-insensitive substring match over labels and aliases (requires the wiki's query service; the WDQS index can lag a few minutes behind a freshly-created item). To select entities by their statements, use wikibase-query; to read an entity's statements, use wikibase-get-entity.",
 	inputSchema,
 	annotations: {
 		title: 'Search Wikibase entities',
@@ -59,7 +67,14 @@ export const wikibaseSearchEntities: Tool<typeof inputSchema> = {
 	failureVerb: 'search Wikibase entities',
 	target: (a) => a.query,
 
-	async handle({ query, entityType, language, limit }, ctx: ToolContext): Promise<CallToolResult> {
+	async handle(
+		{ query, mode, entityType, language, limit },
+		ctx: ToolContext,
+	): Promise<CallToolResult> {
+		if (mode === 'contains') {
+			return searchContains(ctx, query, entityType, language, limit);
+		}
+
 		const searchLanguage = await resolveLanguage(ctx, language);
 		const mwn = await ctx.mwn();
 		// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- wbsearchentities response shape; trusted at this boundary
@@ -124,4 +139,84 @@ function clamp(description: string | undefined): string | undefined {
 	return characters.length > MAX_DESCRIPTION_CHARS
 		? `${characters.slice(0, MAX_DESCRIPTION_CHARS).join('')}…`
 		: description;
+}
+
+/**
+ * Case-insensitive substring search over labels and aliases, via the query
+ * service: wbsearchentities on a MySQL term store matches prefixes only (and
+ * case-sensitively), so `contains` is the only way to ask "which entities
+ * MENTION this text" — and to prove absence. The WDQS index can lag a few
+ * minutes behind a fresh entity, which the description says.
+ */
+async function searchContains(
+	ctx: ToolContext,
+	query: string,
+	entityType: 'item' | 'property',
+	language: string | undefined,
+	limit: number,
+): Promise<CallToolResult> {
+	const { key } = ctx.activeWiki.get();
+	const endpoint = ((await resolveSiteInfo(ctx, key)).sparqlEndpoint ?? '').trim();
+	if (endpoint === '') {
+		return ctx.format.invalidInput(
+			`Wiki "${key}" advertises no query service, so contains search cannot run against it. Use mode=prefix instead.`,
+		);
+	}
+
+	const searchLanguage = await resolveLanguage(ctx, language);
+	// Properties carry wikibase:propertyType; items do not — the standard way
+	// to separate the two kinds in SPARQL.
+	const typePattern =
+		entityType === 'property'
+			? '?item wikibase:propertyType ?propType .'
+			: 'FILTER NOT EXISTS { ?item wikibase:propertyType ?propType } .';
+	const languageLiteral = sparqlLiteral(searchLanguage);
+	// The entity IRI is $wgServer/entity/Q… (Wikibase's default entity URL);
+	// STRAFTER keeps the bare id. A wiki that deviates would bind '' here and
+	// the rows would be dropped below — a visible empty result, not a crash.
+	const sparql = `SELECT DISTINCT ?id ?label ?description WHERE {
+  { ?item rdfs:label ?label . }
+  UNION
+  { ?item skos:altLabel ?label . }
+  ${typePattern}
+  FILTER(CONTAINS(LCASE(?label), LCASE(${sparqlLiteral(query)})))
+  FILTER(LANG(?label) = ${languageLiteral} || LANG(?label) = "")
+  OPTIONAL {
+    ?item schema:description ?description .
+    FILTER(LANG(?description) = ${languageLiteral})
+  }
+  BIND(STRAFTER(STR(?item), '/entity/') AS ?id)
+} ORDER BY ?label LIMIT ${limit}`;
+
+	let results;
+	try {
+		results = await runSparqlBindings(endpoint, sparql, limit);
+	} catch (err) {
+		if (err instanceof SparqlError) {
+			return ctx.format.error(err.category, err.message);
+		}
+		throw err;
+	}
+
+	const matches = results.rows
+		.filter((row) => /^[QqPp]\d+$/.test(row.id))
+		.map((row) => ({
+			id: row.id,
+			label: row.label,
+			...(row.description !== '' ? { description: row.description } : {}),
+		}));
+
+	return ctx.format.ok({
+		results: matches.map(renderMatch),
+	});
+}
+
+/** A SPARQL string literal, escaping the characters a literal cannot carry. */
+function sparqlLiteral(value: string): string {
+	return `"${value
+		.replace(/\\/g, '\\\\')
+		.replace(/"/g, '\\"')
+		.replace(/\n/g, '\\n')
+		.replace(/\r/g, '\\r')
+		.replace(/\t/g, '\\t')}"`;
 }

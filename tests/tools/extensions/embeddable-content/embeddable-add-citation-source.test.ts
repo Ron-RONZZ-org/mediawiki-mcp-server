@@ -154,6 +154,57 @@ describe('embeddable-add-citation-source', () => {
 		expect(submit).not.toHaveBeenCalled();
 	});
 
+	it('creates a webpage with authors and a website parent (authors accepted)', async () => {
+		const parent = {
+			entities: {
+				Q42: {
+					id: 'Q42',
+					type: 'item',
+					labels: { en: { value: 'Example Site' } },
+					claims: {
+						P1: [
+							{
+								mainsnak: {
+									snaktype: 'value',
+									property: 'P1',
+									datavalue: {
+										type: 'wikibase-entityid',
+										value: { 'entity-type': 'item', id: 'Q11' },
+									},
+								},
+								type: 'statement',
+								rank: 'normal',
+								id: 'Q42$c1',
+							},
+						],
+					},
+				},
+			},
+		};
+		const { ctx, submit } = contextWith(vi.fn().mockResolvedValue(CREATED), parent);
+
+		const result = await embeddableAddCitationSource.handle(
+			toolArgs(embeddableAddCitationSource, {
+				classKey: 'webpage',
+				title: 'A Page',
+				authors: 'Q6',
+				url: 'https://example.org/page',
+				parent: 'Q42',
+			}),
+			ctx,
+		);
+
+		const data = JSON.parse(submit.mock.calls[0][1].data);
+		const byProperty = Object.fromEntries(
+			data.claims.map((c: { mainsnak: { property: string } }) => [c.mainsnak.property, c]),
+		);
+		expect(byProperty.P1.mainsnak.datavalue.value.id).toBe('Q339'); // webpage class
+		expect(byProperty.P6.mainsnak.datavalue.value.id).toBe('Q6'); // author statement written
+		expect(byProperty.P44.mainsnak.datavalue.value.id).toBe('Q42'); // part of the website
+		expect(byProperty.P48.mainsnak.datavalue.value).toBe('https://example.org/page');
+		expect(assertStructuredData(result)).toMatchObject({ entityId: 'Q777', created: true });
+	});
+
 	it('copies year and authors from the parent book for a book-excerpt', async () => {
 		const parent = {
 			entities: {

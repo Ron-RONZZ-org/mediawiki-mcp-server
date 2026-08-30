@@ -11,6 +11,13 @@ export type SiteInfo = {
 	 * repository, as published in siteinfo; absent on a wiki that publishes none.
 	 */
 	sparqlEndpoint?: string;
+	/**
+	 * Namespace names (canonical and localized) and aliases, lowercased,
+	 * mapped to their ids — the data search-page-by-prefix needs to turn a
+	 * "Namespace:"-style prefix into an apnamespace. Absent when siteinfo
+	 * omitted them.
+	 */
+	namespaceNames?: Record<string, number>;
 };
 
 export interface SiteInfoCache {

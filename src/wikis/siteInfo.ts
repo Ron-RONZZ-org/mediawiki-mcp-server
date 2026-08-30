@@ -12,6 +12,10 @@ interface SiteInfoApiResponse {
 			'wikibase-sparql'?: string;
 		};
 		rightsinfo?: { url?: string; text?: string };
+		// formatversion=2: namespaces keyed by id string, each with `id`, `name`
+		// (localized) and `canonical`; namespacealiases as `{ id, alias }` rows.
+		namespaces?: Record<string, { id?: unknown; name?: unknown; canonical?: unknown }>;
+		namespacealiases?: { id?: unknown; alias?: unknown }[];
 	};
 }
 
@@ -40,7 +44,7 @@ async function fetchSiteInfo(ctx: ToolContext, wikiKey: string): Promise<SiteInf
 		const response = (await mwn.request({
 			action: 'query',
 			meta: 'siteinfo',
-			siprop: 'general|rightsinfo',
+			siprop: 'general|rightsinfo|namespaces|namespacealiases',
 			formatversion: '2',
 		})) as SiteInfoApiResponse;
 
@@ -55,6 +59,11 @@ async function fetchSiteInfo(ctx: ToolContext, wikiKey: string): Promise<SiteInf
 		const license: LicenseInfo | undefined =
 			rights?.url && rights.text ? { url: rights.url, title: rights.text } : undefined;
 
+		const namespaceNames = buildNamespaceNames(
+			response.query?.namespaces,
+			response.query?.namespacealiases,
+		);
+
 		const resolved: SiteInfo = {
 			server: normalizeServer(general.server),
 			articlepath:
@@ -66,6 +75,7 @@ async function fetchSiteInfo(ctx: ToolContext, wikiKey: string): Promise<SiteInf
 				? { sparqlEndpoint: general['wikibase-sparql'] }
 				: {}),
 			...(license ? { license } : {}),
+			...(namespaceNames !== undefined ? { namespaceNames } : {}),
 		};
 		ctx.siteInfoCache.set(wikiKey, resolved);
 		return resolved;
@@ -104,4 +114,35 @@ export async function resolveSiteInfo(ctx: ToolContext, wikiKey: string): Promis
 	});
 	inflight.set(wikiKey, promise);
 	return promise;
+}
+
+/**
+ * Namespace names → id map for prefix lookups: every namespace's localized
+ * `name` and `canonical` name, plus every alias, lowercased. Namespace
+ * matching in titles is case-insensitive, hence the fold. Absent (undefined)
+ * when the wiki's siteinfo carried none, so callers can tell "no data" from
+ * "empty map".
+ */
+function buildNamespaceNames(
+	namespaces: NonNullable<SiteInfoApiResponse['query']>['namespaces'],
+	aliases: NonNullable<SiteInfoApiResponse['query']>['namespacealiases'],
+): Record<string, number> | undefined {
+	const map: Record<string, number> = {};
+	for (const raw of Object.values(namespaces ?? {})) {
+		const id = typeof raw?.id === 'number' ? raw.id : NaN;
+		if (!Number.isFinite(id)) {
+			continue;
+		}
+		for (const name of [raw?.name, raw?.canonical]) {
+			if (typeof name === 'string' && name !== '') {
+				map[name.toLowerCase()] = id;
+			}
+		}
+	}
+	for (const alias of aliases ?? []) {
+		if (typeof alias?.id === 'number' && typeof alias.alias === 'string' && alias.alias !== '') {
+			map[alias.alias.toLowerCase()] = alias.id;
+		}
+	}
+	return Object.keys(map).length > 0 ? map : undefined;
 }

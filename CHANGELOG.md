@@ -21,6 +21,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 ### Changed
 
 - The Wikibase pack now ships six tools: `wikibase-setsitelink` joined the existing five.
+- `embeddable-add-citation-source` now accepts `authors` for the `website`, `webpage` and `youtube-channel` classes, matching the Special:AddSource manual form, which exposes a required authors field for every class. Those classes previously rejected the field outright while the "at least one author required" rule still demanded one — no input satisfied both constraints, so web pages could only be created by bypassing the flow.
+- `search-page-by-prefix` resolves namespace-style prefixes against the wiki's namespaces: `prefix="RonzzIT:"` lists the whole namespace and `prefix="RonzzIT:Main"` searches within it, where the API alone rejected any colon-prefix as `invalidtitle`. An unknown trailing-colon prefix, and a prefix whose namespace contradicts the `namespace` parameter, now get errors that name the fix.
+- `wikibase-search-entities` gains a `mode` parameter: `prefix` (default, unchanged) and `contains`, a case-insensitive substring search over labels and aliases through the wiki's query service — the way to distinguish "no such entity" from "the prefix search cannot find it". Requires the wiki to publish a query service; the WDQS index can lag a few minutes behind a freshly-created item.
 
 ## [0.17.0] - 2026-08-13
 
