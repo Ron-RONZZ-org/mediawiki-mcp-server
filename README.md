@@ -117,10 +117,10 @@ The Add\* forms of the EmbeddableContent extension expose typed entity creation 
 | Name | Description |
 |---|---|
 | `embeddable-add-special-content` | Create or update a quotation, math or code-snippet item, mirroring Special:AddQuotation / AddMath / AddCodeSnippet. Requires the `edit` right. |
-| `embeddable-add-citation-source` | Create or update a citable work item (book, article, website, …), mirroring Special:AddSource. Requires the `edit` right. |
+| `embeddable-add-citation-source` | Create or update a citable work item (book, article, website, …) through the wiki's own AddSource service (`action=addsource`), incl. the classic `Source:` page + sitelink. Requires the `edit` right. |
 | `embeddable-add-semantic-entity` | Create or update a person, software, collective, fictional-character or other-class item, mirroring Special:AddPerson / AddSoftware / AddCollective / AddFictionalCharacter. Requires the `edit` right. |
 | `embeddable-get-embed-content` | Render an EmbeddableContent item through the embed API (the Special:Embed renderer). |
-| `embeddable-describe-entity-type` | Return the field tables and resolved property IDs behind the add tools. |
+| `embeddable-describe-entity-type` | Return the field tables and resolved property IDs behind the add tools (citation-source served by the wiki's `action=addsource-fields`). |
 
 **[WikibaseCitation](https://www.mediawiki.org/wiki/Extension:WikibaseCitation) (custom extension)**
 

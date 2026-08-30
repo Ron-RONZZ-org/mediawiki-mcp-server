@@ -3,17 +3,44 @@ import type { CallToolResult } from '@modelcontextprotocol/server';
 import type { Tool } from '../../../runtime/tool.ts';
 import type { ToolContext } from '../../../runtime/context.ts';
 import { resolveVocabulary } from './embeddableVocabulary.ts';
-import {
-	CLASS_FIELDS,
-	CLASS_KEY_TO_VOCAB,
-	CLASS_LABELS,
-	FIELD_LABELS,
-	PARENT_CLASS,
-	PAYLOAD_KEY,
-	SOURCE_CLASS_KEYS,
-	SOURCE_FIELDS,
-	SPECIAL_CONTENT_KINDS,
-} from './embeddableSchema.ts';
+import { PAYLOAD_KEY, SPECIAL_CONTENT_KINDS } from './embeddableSchema.ts';
+
+interface SourceFieldContract {
+	classes: {
+		classKey?: string;
+		label?: string;
+		classItemId?: string;
+		parentClass?: string | null;
+		fields?: string[];
+		requiredOnCreate?: string[];
+	}[];
+	propertyIds: {
+		instanceOf?: string;
+		provenance?: Record<string, string>;
+		citationMetadata?: Record<string, string>;
+		sourceProperties?: Record<string, string>;
+		externalIds?: Record<string, string>;
+	};
+}
+
+/**
+ * Fetches the citation-source field contract from the wiki's own
+ * action=addsource-fields endpoint. Returns undefined when the wiki did not
+ * answer it (an EmbeddableContent version too old to serve it).
+ */
+async function fetchCitationSource(ctx: ToolContext): Promise<SourceFieldContract | undefined> {
+	const mwn = await ctx.mwn();
+	// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- action=addsource-fields response shape; trusted at this boundary
+	const response = (await mwn.request({
+		action: 'addsource-fields',
+		formatversion: '2',
+	})) as { sourcefields?: SourceFieldContract };
+	const fields = response.sourcefields;
+	if (fields?.classes === undefined || fields.propertyIds === undefined) {
+		return undefined;
+	}
+	return fields;
+}
 
 const inputSchema = {
 	kind: z
@@ -67,37 +94,17 @@ export const embeddableDescribeEntityType: Tool<typeof inputSchema> = {
 					}
 				: undefined;
 
+		// The citation-source section is served by the wiki's own
+		// action=addsource-fields endpoint — the field contract (SourceFieldMap)
+		// has one publisher, so discovery can never drift from the add flow.
 		const citationSource =
-			kind === undefined || kind === 'citation-source'
-				? {
-						classes: SOURCE_CLASS_KEYS.map((key) => ({
-							classKey: key,
-							label: CLASS_LABELS[key],
-							classItem: {
-								id: classes[CLASS_KEY_TO_VOCAB[key]],
-								label: CLASS_LABELS[key],
-							},
-							parentClass: PARENT_CLASS[key],
-							fields: [...CLASS_FIELDS[key]].map((field) => ({
-								field,
-								role: FIELD_LABELS[field],
-								property: fieldPathLabel(field, vocabulary),
-							})),
-						})),
-						fields: SOURCE_FIELDS.map((field) => ({
-							field,
-							role: FIELD_LABELS[field],
-						})),
-						example: {
-							classKey: 'book',
-							title: 'The Hobbit',
-							authors: 'Q6',
-							publisher: 'Q42',
-							year: '1937',
-							isbn: '9780547928227',
-						},
-					}
-				: undefined;
+			kind === undefined || kind === 'citation-source' ? await fetchCitationSource(ctx) : undefined;
+		if (kind === 'citation-source' && citationSource === undefined) {
+			return ctx.format.error(
+				'upstream_failure',
+				'The wiki did not answer action=addsource-fields — its EmbeddableContent version is too old to serve the source field contract.',
+			);
+		}
 
 		const semanticEntity =
 			kind === undefined || kind === 'semantic-entity'
@@ -115,17 +122,21 @@ export const embeddableDescribeEntityType: Tool<typeof inputSchema> = {
 					}
 				: undefined;
 
+		// The source-related property ids come from the wiki's config (via the
+		// fields endpoint when it answered); the rest resolve locally.
+		const sourcePropertyIds = citationSource?.propertyIds;
+
 		return ctx.format.ok({
 			propertyIds: {
-				instanceOf: vocabulary.instanceOf,
+				instanceOf: sourcePropertyIds?.instanceOf ?? vocabulary.instanceOf,
 				payloadProperties: vocabulary.payloadProperties,
 				programmingLanguage: vocabulary.programmingLanguage,
-				provenance: vocabulary.provenance,
+				provenance: sourcePropertyIds?.provenance ?? vocabulary.provenance,
 				describes: vocabulary.describes,
 				implementationOf: vocabulary.implementationOf,
-				citationMetadata: vocabulary.citationMetadata,
-				sourceProperties: vocabulary.sourceProperties,
-				externalIds: vocabulary.externalIds,
+				citationMetadata: sourcePropertyIds?.citationMetadata ?? vocabulary.citationMetadata,
+				sourceProperties: sourcePropertyIds?.sourceProperties ?? vocabulary.sourceProperties,
+				externalIds: sourcePropertyIds?.externalIds ?? vocabulary.externalIds,
 				personProperties: vocabulary.personProperties,
 				fossProperties: vocabulary.fossProperties,
 				collectiveProperties: vocabulary.collectiveProperties,
@@ -159,62 +170,6 @@ function specialContentFields(kind: (typeof SPECIAL_CONTENT_KINDS)[number]): str
 	}
 	fields.push('attributedTo', 'source', 'sourceUrl', 'date');
 	return fields;
-}
-
-function fieldPathLabel(
-	field: (typeof SOURCE_FIELDS)[number],
-	vocabulary: {
-		provenance: { attributedTo: string; date: string };
-		citationMetadata: Record<string, string>;
-		sourceProperties: Record<string, string>;
-		externalIds: Record<string, string>;
-	},
-): string {
-	switch (field) {
-		case 'authors':
-			return vocabulary.provenance.attributedTo;
-		case 'year':
-			return vocabulary.provenance.date;
-		case 'parent':
-			return vocabulary.sourceProperties.partOf;
-		case 'publisher':
-			return vocabulary.citationMetadata.publisher;
-		case 'journal':
-			return vocabulary.citationMetadata.journal;
-		case 'volume':
-			return vocabulary.citationMetadata.volume;
-		case 'issue':
-			return vocabulary.citationMetadata.issue;
-		case 'pages':
-			return vocabulary.citationMetadata.pages;
-		case 'chapters':
-			return vocabulary.sourceProperties.chapters;
-		case 'url':
-			return vocabulary.sourceProperties.url;
-		case 'duration':
-			return vocabulary.sourceProperties.duration;
-		case 'youtubeChannelId':
-			return vocabulary.sourceProperties.youtubeChannelId;
-		case 'youtubeVideoId':
-			return vocabulary.sourceProperties.youtubeVideoId;
-		case 'accessUrl':
-			return vocabulary.sourceProperties.accessUrl;
-		case 'isbn':
-			return vocabulary.externalIds.isbn13;
-		case 'doi':
-			return vocabulary.externalIds.doi;
-		case 'wikidataId':
-			return vocabulary.externalIds.wikidataId;
-		case 'openalexWorkId':
-			return vocabulary.externalIds.openalexWorkId;
-		case 'pubmedId':
-			return vocabulary.externalIds.pubmedId;
-		case 'title':
-		case 'description':
-			return 'term (label / description), not a statement';
-	}
-	// Every source field is handled above; the union is exhaustive.
-	return 'term (label / description), not a statement';
 }
 
 /** The class item id and fields per semantic kind, for the discovery output. */

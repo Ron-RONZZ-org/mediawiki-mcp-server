@@ -8,7 +8,52 @@ import { embeddableDescribeEntityType } from '../../../../src/tools/extensions/e
 import { vocabularyRequestResponse } from './vocabFixture.ts';
 
 function contextWith() {
-	const mock = createMockMwn({ request: vi.fn().mockResolvedValue(vocabularyRequestResponse()) });
+	const mock = createMockMwn({
+		request: vi.fn((params: { action?: string }) => {
+			if (params.action === 'addsource-fields') {
+				return Promise.resolve({
+					sourcefields: {
+						classes: [
+							{
+								classKey: 'book',
+								label: 'book',
+								classItemId: 'Q9',
+								parentClass: null,
+								fields: [
+									'title',
+									'description',
+									'authors',
+									'publisher',
+									'pages',
+									'year',
+									'isbn',
+									'accessUrl',
+									'wikidataId',
+								],
+								requiredOnCreate: ['title', 'authors'],
+							},
+							{
+								classKey: 'webpage',
+								label: 'web page',
+								classItemId: 'Q339',
+								parentClass: 'website',
+								fields: ['title', 'description', 'authors', 'url', 'year', 'parent', 'wikidataId'],
+								requiredOnCreate: ['title', 'authors', 'parent'],
+							},
+						],
+						propertyIds: {
+							instanceOf: 'P1',
+							provenance: { attributedTo: 'P6', sourceUrl: 'P7', date: 'P8', source: 'P28' },
+							citationMetadata: { publisher: 'P54', journal: 'P57' },
+							sourceProperties: { partOf: 'P44', url: 'P48', duration: 'P45' },
+							externalIds: { isbn13: 'P17', doi: 'P16', wikidataId: 'P12' },
+						},
+					},
+				});
+			}
+			return Promise.resolve(vocabularyRequestResponse());
+		}),
+	});
 	return fakeContext({ mwn: async () => mock as never });
 }
 
@@ -45,12 +90,18 @@ describe('embeddable-describe-entity-type', () => {
 		const book = data.citationSource.classes.find(
 			(c: { classKey: string }) => c.classKey === 'book',
 		);
-		expect(book.classItem.id).toBe('Q9');
-		expect(book.fields.map((f: { field: string }) => f.field)).toContain('authors');
+		expect(book.classItemId).toBe('Q9');
+		expect(book.fields).toContain('authors');
 		expect(
 			data.citationSource.classes.find((c: { classKey: string }) => c.classKey === 'webpage')
 				.parentClass,
 		).toBe('website');
+		expect(
+			data.citationSource.classes.find((c: { classKey: string }) => c.classKey === 'webpage')
+				.requiredOnCreate,
+		).toContain('parent');
+		// The source contract comes from the wiki's own endpoint.
+		expect(data.propertyIds.citationMetadata).toEqual({ publisher: 'P54', journal: 'P57' });
 	});
 
 	it('reports the semantic-entity kinds and their fields', async () => {
