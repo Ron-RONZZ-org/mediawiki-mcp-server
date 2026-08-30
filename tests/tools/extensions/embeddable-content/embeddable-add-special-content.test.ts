@@ -165,6 +165,48 @@ describe('embeddable-add-special-content', () => {
 		expect(submit).not.toHaveBeenCalled();
 	});
 
+	it('escapes multi-line content for storage instead of rejecting it', async () => {
+		const { ctx, submit } = contextWith();
+
+		const result = await embeddableAddSpecialContent.handle(
+			toolArgs(embeddableAddSpecialContent, {
+				kind: 'code-snippet',
+				label: 'Multi-line',
+				content: 'def f():\n    return 1',
+			}),
+			ctx,
+		);
+
+		const data = JSON.parse(submit.mock.calls[0][1].data);
+		const payload = data.claims.find(
+			(c: { mainsnak: { property: string } }) => c.mainsnak.property === 'P3',
+		);
+		// Newlines stored as the literal \n sequence; backslashes escaped too.
+		expect(payload.mainsnak.datavalue.value).toBe('def f():\\n    return 1');
+		expect(assertStructuredData(result)).toMatchObject({ entityId: 'Q777', created: true });
+	});
+
+	it('escapes backslashes before newlines so literal sequences survive', async () => {
+		const { ctx, submit } = contextWith();
+
+		await embeddableAddSpecialContent.handle(
+			toolArgs(embeddableAddSpecialContent, {
+				kind: 'code-snippet',
+				label: 'Escapes',
+				content: 'print("a\\nb")\nnext()',
+			}),
+			ctx,
+		);
+
+		const data = JSON.parse(submit.mock.calls[0][1].data);
+		const payload = data.claims.find(
+			(c: { mainsnak: { property: string } }) => c.mainsnak.property === 'P3',
+		);
+		// The literal \n in the code becomes \\n (escaped backslash), the real
+		// newline becomes \n — distinct stored forms.
+		expect(payload.mainsnak.datavalue.value).toBe('print("a\\\\nb")\\nnext()');
+	});
+
 	it('updates an existing item by merging, keeping statements it does not manage', async () => {
 		const mock = createMockMwn({
 			request: vi.fn((params: { props?: string }) =>

@@ -187,6 +187,23 @@ export function stripMathDelimiters(payload: string): string {
 	return trimmed;
 }
 
+/**
+ * Encodes a content payload for storage (the extension's escape-at-rest
+ * scheme, issue #6 §8 option A): the wiki's string and monolingualtext
+ * values reject vertical whitespace and tabs, so backslashes are escaped
+ * first, then carriage returns, newlines and tabs become the literal
+ * sequences `\r`, `\n`, `\t`. The wiki decodes at render time — the
+ * embed renderers and the {{#content:Qxx}} decoder function. Mirrors
+ * EmbeddableContent's PayloadCodec::escape.
+ */
+export function escapePayload(payload: string): string {
+	return payload
+		.replace(/\\/g, '\\\\')
+		.replace(/\r/g, '\\r')
+		.replace(/\n/g, '\\n')
+		.replace(/\t/g, '\\t');
+}
+
 /** A `YYYY-MM-DD` day date is required for the form's `date` field. */
 export const DAY_DATE = /^\d{4}-\d{2}-\d{2}$/;
 

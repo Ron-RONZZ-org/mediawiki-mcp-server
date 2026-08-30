@@ -12,6 +12,7 @@ import {
 	LANGUAGE_CODE,
 	dayStatement,
 	editSummary,
+	escapePayload,
 	entityStatement,
 	mergeClaims,
 	monolingualStatement,
@@ -47,7 +48,7 @@ const inputSchema = {
 		.min(1)
 		.optional()
 		.describe(
-			'The payload: the quotation text (quotation), LaTeX source (math — enclosing $…$, $$…$$, \\(…\\) or \\[…\\] delimiters are stripped on save), or the source code (code-snippet). Required when creating.',
+			"The payload: the quotation text (quotation), LaTeX source (math — enclosing $…$, $$…$$, \\(…\\) or \\[…\\] delimiters are stripped on save), or the source code (code-snippet). Required when creating. Multi-line content is stored backslash-escaped (\\n, \\t, \\r, \\\\) because the wiki's string values reject the raw whitespace, and decoded at render time by the wiki. Content items carry no description field.",
 		),
 	labelLanguage: z
 		.string()
@@ -140,7 +141,7 @@ interface NormalizedInput {
 export const embeddableAddSpecialContent: Tool<typeof inputSchema> = {
 	name: 'embeddable-add-special-content',
 	description:
-		"Creates or updates a quotation, mathematical expression or code-snippet item on a wiki with the EmbeddableContent extension, mirroring the Special:AddQuotation / AddMath / AddCodeSnippet forms, and returns the item ID and latest revision. Requires the edit right.\n\nThe item is classified instance of the kind's class and carries the content as the kind's payload property (content text for quotations, code source for snippets, LaTeX source for math), plus the provenance block you supply: attributedTo, source, sourceUrl and date. Math delimiters are stripped from content, and a quotation's content is stored as monolingual text in language. To find existing entities — including the attributedTo person or source item — use wikibase-search-entities first.\n\nSet qid to update an existing item instead: statements on the fields you provide are replaced, blank fields keep the existing statements, and the class is never changed. For the field table, property IDs and a ready-to-submit example, call embeddable-describe-entity-type first.",
+		"Creates or updates a quotation, mathematical expression or code-snippet item on a wiki with the EmbeddableContent extension, mirroring the Special:AddQuotation / AddMath / AddCodeSnippet forms, and returns the item ID and latest revision. Requires the edit right.\n\nThe item is classified instance of the kind's class and carries the content as the kind's payload property (content text for quotations, code source for snippets, LaTeX source for math), plus the provenance block you supply: attributedTo, source, sourceUrl and date. Math delimiters are stripped from content, and a quotation's content is stored as monolingual text in language. Multi-line content is supported: newlines, tabs, carriage returns and backslashes are stored backslash-escaped (the wiki's string values reject the raw whitespace) and decoded at render time — the embed surfaces render decoded, and {{#content:Qxx}} shows the decoded payload on pages. Content items carry no description field. To find existing entities — including the attributedTo person or source item — use wikibase-search-entities first.\n\nSet qid to update an existing item instead: statements on the fields you provide are replaced, blank fields keep the existing statements, and the class is never changed. For the field table, property IDs and a ready-to-submit example, call embeddable-describe-entity-type first.",
 	inputSchema,
 	annotations: {
 		title: 'Add special content',
@@ -236,6 +237,10 @@ async function validateInput(
 		if (content === '') {
 			return new Error('content is empty after trimming/delimiter-stripping.');
 		}
+		// Escape-at-rest (issue #6 §8 option A): the wiki's string values
+		// reject vertical whitespace, so multi-line content is stored
+		// backslash-escaped and decoded at render time by the wiki.
+		content = escapePayload(content);
 	}
 
 	let programmingLanguageItemId: string | undefined;
