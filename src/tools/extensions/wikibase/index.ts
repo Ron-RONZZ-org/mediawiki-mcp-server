@@ -4,6 +4,7 @@ import { wikibaseGetEntity } from './wikibase-get-entity.ts';
 import { wikibaseQuery } from './wikibase-query.ts';
 import { wikibaseEditEntity } from './wikibase-edit-entity.ts';
 import { wikibaseAddStatement } from './wikibase-add-statement.ts';
+import { wikibaseSetSitelink } from './wikibase-setsitelink.ts';
 import { WIKIBASE_ERROR_CODES, WIKIBASE_ERROR_CODE_PREFIXES } from './errorCodes.ts';
 
 export const wikibasePack: ExtensionPack = {
@@ -18,6 +19,7 @@ export const wikibasePack: ExtensionPack = {
 		wikibaseQuery,
 		wikibaseEditEntity,
 		wikibaseAddStatement,
+		wikibaseSetSitelink,
 	],
 	errorCodes: WIKIBASE_ERROR_CODES,
 	errorCodePrefixes: WIKIBASE_ERROR_CODE_PREFIXES,

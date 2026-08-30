@@ -108,6 +108,24 @@ Each pack's tools register only on wikis where its extension is installed.
 | `wikibase-query` | Run a SPARQL query against the wiki's query service. Offered only for a repository whose siteinfo publishes one. |
 | `wikibase-edit-entity` | Create or change an entity from Wikibase entity JSON. Requires the `edit` right. |
 | `wikibase-add-statement` | Add one statement with an item, string, external-id or url value. Requires the `edit` right. |
+| `wikibase-setsitelink` | Link a wiki page to an item (page ↔ item sitelink). Requires the `edit` right. |
+
+**[EmbeddableContent](https://www.mediawiki.org/wiki/Extension:EmbeddableContent) (custom extension)**
+
+The Add\* forms of the EmbeddableContent extension expose typed entity creation (quotations, math, code snippets, citable works). These tools mirror those forms field-for-field and are registered only on wikis where the extension is installed. The vocabulary (which property or class item each field maps to) is resolved from the wiki at runtime — the tools are not tied to any particular instance's numbering.
+
+| Name | Description |
+|---|---|
+| `embeddable-add-special-content` | Create or update a quotation, math or code-snippet item, mirroring Special:AddQuotation / AddMath / AddCodeSnippet. Requires the `edit` right. |
+| `embeddable-add-citation-source` | Create or update a citable work item (book, article, website, …), mirroring Special:AddSource. Requires the `edit` right. |
+| `embeddable-get-embed-content` | Render an EmbeddableContent item through the embed API (the Special:Embed renderer). |
+| `embeddable-describe-entity-type` | Return the field tables and resolved property IDs behind the two add tools. |
+
+**[WikibaseCitation](https://www.mediawiki.org/wiki/Extension:WikibaseCitation) (custom extension)**
+
+| Name | Description |
+|---|---|
+| `citation-get-citation` | Format a citation for an item (json, apa, vancouver, bibtex, ris) through the wiki's citation API. |
 
 ### Resources
 

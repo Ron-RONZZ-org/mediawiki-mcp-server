@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+### Added
+
+- Six tools for wikis running the [EmbeddableContent](https://www.mediawiki.org/wiki/Extension:EmbeddableContent) and [WikibaseCitation](https://www.mediawiki.org/wiki/Extension:WikibaseCitation) extensions, mirroring the extensions' `Special:Add*` forms and render APIs field-for-field:
+  - `embeddable-add-special-content` creates or updates a quotation, mathematical expression or code-snippet item (kind: quotation | math | code-snippet), with the same payload, provenance and subject fields the AddQuotation / AddMath / AddCodeSnippet forms write, including math delimiter stripping and monolingual quotation payloads.
+  - `embeddable-add-citation-source` creates or updates a citable work item (classKey: book, scholarly-article, website, webpage, song, film, video, youtube-channel, youtube-video, book-excerpt), with the class-scoped fields of the Special:AddSource manual flow: authors as item IDs (at least one, except book-excerpt, which copies the parent book's authors and year), entity-only publisher and journal, year at year precision, duration as whole seconds, child-class parent validation, and the book-excerpt auto-description.
+  - `embeddable-get-embed-content` renders an item through the embed API (the Special:Embed renderer).
+  - `embeddable-describe-entity-type` returns the field tables, resolved property IDs and a ready-to-submit example for the two add tools.
+  - `citation-get-citation` formats a citation (json | apa | vancouver | bibtex | ris) through the wiki's citation API.
+  - `wikibase-setsitelink` links a wiki page to an item (the page ↔ item sitelink the Sitelink tab makes).
+- The EmbeddableContent tools resolve the extension's vocabulary (which property or class item each field maps to) from the wiki at runtime — each default ID is verified by label and re-resolved by exact-label search when a differently-seeded instance numbers it otherwise — so the tools work on any instance, not one fixed numbering.
+
+### Changed
+
+- The Wikibase pack now ships six tools: `wikibase-setsitelink` joined the existing five.
+
 ## [0.17.0] - 2026-08-13
 
 ### Breaking changes

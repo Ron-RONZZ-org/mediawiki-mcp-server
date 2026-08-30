@@ -9,13 +9,15 @@ import type { ExtensionPack } from '../../../src/tools/extensions/types.ts';
 import type { Tool } from '../../../src/runtime/tool.ts';
 
 describe('extensionPacks', () => {
-	it('contains smw, bucket, cargo, neowiki, and wikibase in registration order', () => {
+	it('contains smw, bucket, cargo, neowiki, wikibase, embeddable and citation in registration order', () => {
 		expect(extensionPacks.map((p) => p.id)).toEqual([
 			'smw',
 			'bucket',
 			'cargo',
 			'neowiki',
 			'wikibase',
+			'embeddable',
+			'citation',
 		]);
 	});
 
@@ -24,7 +26,7 @@ describe('extensionPacks', () => {
 		expect(wikibase?.extensionNames).toEqual(['WikibaseRepository']);
 	});
 
-	it('exposes the five Wikibase tools including the write tools', () => {
+	it('exposes the six Wikibase tools including the write tools', () => {
 		const wikibase = extensionPacks.find((p) => p.id === 'wikibase');
 		expect(wikibase?.tools.map((t) => t.name)).toEqual([
 			'wikibase-search-entities',
@@ -32,6 +34,7 @@ describe('extensionPacks', () => {
 			'wikibase-query',
 			'wikibase-edit-entity',
 			'wikibase-add-statement',
+			'wikibase-setsitelink',
 		]);
 	});
 
@@ -53,6 +56,31 @@ describe('extensionPacks', () => {
 	it('lists Bucket as the Bucket extension name', () => {
 		const bucket = extensionPacks.find((p) => p.id === 'bucket');
 		expect(bucket?.extensionNames).toEqual(['Bucket']);
+	});
+
+	it('lists EmbeddableContent as the embeddable extension name', () => {
+		const embeddable = extensionPacks.find((p) => p.id === 'embeddable');
+		expect(embeddable?.extensionNames).toEqual(['EmbeddableContent']);
+	});
+
+	it('exposes the four EmbeddableContent tools', () => {
+		const embeddable = extensionPacks.find((p) => p.id === 'embeddable');
+		expect(embeddable?.tools.map((t) => t.name)).toEqual([
+			'embeddable-add-special-content',
+			'embeddable-add-citation-source',
+			'embeddable-get-embed-content',
+			'embeddable-describe-entity-type',
+		]);
+	});
+
+	it('lists WikibaseCitation as the citation extension name', () => {
+		const citation = extensionPacks.find((p) => p.id === 'citation');
+		expect(citation?.extensionNames).toEqual(['WikibaseCitation']);
+	});
+
+	it('exposes the citation tool', () => {
+		const citation = extensionPacks.find((p) => p.id === 'citation');
+		expect(citation?.tools.map((t) => t.name)).toEqual(['citation-get-citation']);
 	});
 
 	it('exposes the eleven NeoWiki tools including the write tools', () => {

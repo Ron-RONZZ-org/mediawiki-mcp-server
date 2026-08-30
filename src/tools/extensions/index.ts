@@ -4,6 +4,8 @@ import { bucketPack } from './bucket/index.ts';
 import { cargoPack } from './cargo/index.ts';
 import { neowikiPack } from './neowiki/index.ts';
 import { wikibasePack } from './wikibase/index.ts';
+import { embeddableContentPack } from './embeddable-content/index.ts';
+import { wikibaseCitationPack } from './wikibase-citation/index.ts';
 
 export type { ExtensionPack } from './types.ts';
 import type { ErrorCategory, ExtensionErrorVocabulary } from '../../errors/classifyError.ts';
@@ -71,6 +73,8 @@ export const extensionPacks: readonly ExtensionPack[] = [
 	cargoPack,
 	neowikiPack,
 	wikibasePack,
+	embeddableContentPack,
+	wikibaseCitationPack,
 ];
 
 assertWikiGatesNameOwnTools(extensionPacks);
