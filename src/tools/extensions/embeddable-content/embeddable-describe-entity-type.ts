@@ -3,7 +3,6 @@ import type { CallToolResult } from '@modelcontextprotocol/server';
 import type { Tool } from '../../../runtime/tool.ts';
 import type { ToolContext } from '../../../runtime/context.ts';
 import { resolveVocabulary } from './embeddableVocabulary.ts';
-import { PAYLOAD_KEY, SPECIAL_CONTENT_KINDS } from './embeddableSchema.ts';
 
 interface SourceFieldContract {
 	classes: {
@@ -20,6 +19,80 @@ interface SourceFieldContract {
 		citationMetadata?: Record<string, string>;
 		sourceProperties?: Record<string, string>;
 		externalIds?: Record<string, string>;
+	};
+}
+
+interface SpecialContentFieldContract {
+	flows: {
+		kind?: string;
+		class?: { id: string; label?: string };
+		payloadProperty?: { id: string; datatype: string };
+		fields?: string[];
+		requiredOnCreate?: string[];
+	}[];
+	example: Record<string, string>;
+	propertyIds: {
+		instanceOf?: string;
+		payloadProperties?: Record<string, string>;
+		programmingLanguage?: string;
+		describes?: string | null;
+		implementationOf?: string | null;
+		provenance?: Record<string, string>;
+	};
+}
+
+/**
+ * Fetches the special-content field contract from the wiki's own
+ * action=addspecialcontent-fields endpoint. Returns undefined when the wiki
+ * did not answer it (an EmbeddableContent version too old to serve it).
+ */
+async function fetchSpecialContentFields(
+	ctx: ToolContext,
+): Promise<SpecialContentFieldContract | undefined> {
+	const mwn = await ctx.mwn();
+	// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- action=addspecialcontent-fields response shape; trusted at this boundary
+	const response = (await mwn.request({
+		action: 'addspecialcontent-fields',
+		formatversion: '2',
+	})) as {
+		contentfields?: {
+			kinds?: {
+				kind?: string;
+				classItemId?: string;
+				payloadPropertyId?: string;
+				fields?: string[];
+				requiredOnCreate?: string[];
+			}[];
+			propertyIds?: SpecialContentFieldContract['propertyIds'];
+		};
+	};
+	const fields = response.contentfields;
+	if (fields?.kinds === undefined || fields.propertyIds === undefined) {
+		return undefined;
+	}
+	return {
+		flows: fields.kinds.map((k) => ({
+			kind: k.kind,
+			...(k.classItemId !== undefined ? { class: { id: k.classItemId, label: k.kind } } : {}),
+			...(k.payloadPropertyId !== undefined
+				? {
+						payloadProperty: {
+							id: k.payloadPropertyId,
+							datatype: k.kind === 'quotation' ? 'monolingualtext' : 'string',
+						},
+					}
+				: {}),
+			fields: k.fields ?? [],
+			requiredOnCreate: k.requiredOnCreate ?? [],
+		})),
+		example: {
+			kind: 'quotation',
+			label: 'First words of the quote',
+			content: 'The quotation text',
+			language: 'en',
+			attributedTo: 'Q94',
+		},
+		propertyIds: fields.propertyIds,
 	};
 }
 
@@ -65,38 +138,17 @@ export const embeddableDescribeEntityType: Tool<typeof inputSchema> = {
 	},
 	failureVerb: 'describe entity type',
 	target: (a) => a.kind ?? 'all',
-
 	async handle({ kind }, ctx: ToolContext): Promise<CallToolResult> {
-		const { vocabulary, classes, missing } = await resolveVocabulary(ctx);
+		const { vocabulary, missing } = await resolveVocabulary(ctx);
 
+		// Both add-flow sections are served by the wiki's own fields
+		// endpoints — the field contracts (SourceFieldMap, SpecialContentFieldMap)
+		// have one publisher each, so discovery can never drift from the
+		// add flows. The semantic-entity section is still local (Phase 3).
 		const specialContent =
 			kind === undefined || kind === 'special-content'
-				? {
-						flows: SPECIAL_CONTENT_KINDS.map((k) => ({
-							kind: k,
-							class: {
-								id: classes[PAYLOAD_KEY[k]],
-								label: PAYLOAD_KEY[k],
-							},
-							payloadProperty: {
-								id: vocabulary.payloadProperties[PAYLOAD_KEY[k]],
-								datatype: k === 'quotation' ? 'monolingualtext' : 'string',
-							},
-							fields: specialContentFields(k),
-						})),
-						example: {
-							kind: 'quotation',
-							label: 'First words of the quote',
-							content: 'The quotation text',
-							language: 'en',
-							attributedTo: 'Q94',
-						},
-					}
+				? await fetchSpecialContentFields(ctx)
 				: undefined;
-
-		// The citation-source section is served by the wiki's own
-		// action=addsource-fields endpoint — the field contract (SourceFieldMap)
-		// has one publisher, so discovery can never drift from the add flow.
 		const citationSource =
 			kind === undefined || kind === 'citation-source' ? await fetchCitationSource(ctx) : undefined;
 		if (kind === 'citation-source' && citationSource === undefined) {
@@ -105,7 +157,12 @@ export const embeddableDescribeEntityType: Tool<typeof inputSchema> = {
 				'The wiki did not answer action=addsource-fields — its EmbeddableContent version is too old to serve the source field contract.',
 			);
 		}
-
+		if (kind === 'special-content' && specialContent === undefined) {
+			return ctx.format.error(
+				'upstream_failure',
+				'The wiki did not answer action=addspecialcontent-fields — its EmbeddableContent version is too old to serve the special-content field contract.',
+			);
+		}
 		const semanticEntity =
 			kind === undefined || kind === 'semantic-entity'
 				? {
@@ -121,19 +178,20 @@ export const embeddableDescribeEntityType: Tool<typeof inputSchema> = {
 						})),
 					}
 				: undefined;
-
 		// The source-related property ids come from the wiki's config (via the
 		// fields endpoint when it answered); the rest resolve locally.
 		const sourcePropertyIds = citationSource?.propertyIds;
+		const contentPropertyIds = specialContent?.propertyIds;
 
 		return ctx.format.ok({
 			propertyIds: {
 				instanceOf: sourcePropertyIds?.instanceOf ?? vocabulary.instanceOf,
-				payloadProperties: vocabulary.payloadProperties,
-				programmingLanguage: vocabulary.programmingLanguage,
+				payloadProperties: contentPropertyIds?.payloadProperties ?? vocabulary.payloadProperties,
+				programmingLanguage:
+					contentPropertyIds?.programmingLanguage ?? vocabulary.programmingLanguage,
 				provenance: sourcePropertyIds?.provenance ?? vocabulary.provenance,
-				describes: vocabulary.describes,
-				implementationOf: vocabulary.implementationOf,
+				describes: contentPropertyIds?.describes ?? vocabulary.describes,
+				implementationOf: contentPropertyIds?.implementationOf ?? vocabulary.implementationOf,
 				citationMetadata: sourcePropertyIds?.citationMetadata ?? vocabulary.citationMetadata,
 				sourceProperties: sourcePropertyIds?.sourceProperties ?? vocabulary.sourceProperties,
 				externalIds: sourcePropertyIds?.externalIds ?? vocabulary.externalIds,
@@ -153,24 +211,6 @@ export const embeddableDescribeEntityType: Tool<typeof inputSchema> = {
 		});
 	},
 };
-
-function specialContentFields(kind: (typeof SPECIAL_CONTENT_KINDS)[number]): string[] {
-	const fields = ['label', 'content'];
-	if (kind === 'quotation') {
-		fields.push('language (quotation only)');
-	}
-	if (kind === 'code-snippet') {
-		fields.push('programmingLanguage (code-snippet only)');
-	}
-	if (kind === 'math') {
-		fields.push('describes (math only)');
-	}
-	if (kind === 'code-snippet') {
-		fields.push('implementationOf (code-snippet only)');
-	}
-	fields.push('attributedTo', 'source', 'sourceUrl', 'date');
-	return fields;
-}
 
 /** The class item id and fields per semantic kind, for the discovery output. */
 const SEMANTIC_KIND_SCHEMA: readonly {

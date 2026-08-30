@@ -51,6 +51,71 @@ function contextWith() {
 					},
 				});
 			}
+			if (params.action === 'addspecialcontent-fields') {
+				return Promise.resolve({
+					contentfields: {
+						kinds: [
+							{
+								kind: 'quotation',
+								classItemId: 'Q2',
+								payloadPropertyId: 'P2',
+								fields: [
+									'label',
+									'content',
+									'labelLanguage',
+									'language',
+									'attributedTo',
+									'source',
+									'sourceUrl',
+									'date',
+								],
+								requiredOnCreate: ['label', 'content', 'attributedTo'],
+							},
+							{
+								kind: 'math',
+								classItemId: 'Q4',
+								payloadPropertyId: 'P4',
+								fields: [
+									'label',
+									'content',
+									'labelLanguage',
+									'describes',
+									'attributedTo',
+									'source',
+									'sourceUrl',
+									'date',
+								],
+								requiredOnCreate: ['label', 'content'],
+							},
+							{
+								kind: 'code-snippet',
+								classItemId: 'Q3',
+								payloadPropertyId: 'P3',
+								fields: [
+									'label',
+									'content',
+									'labelLanguage',
+									'programmingLanguage',
+									'implementationOf',
+									'attributedTo',
+									'source',
+									'sourceUrl',
+									'date',
+								],
+								requiredOnCreate: ['label', 'content'],
+							},
+						],
+						propertyIds: {
+							instanceOf: 'P1',
+							payloadProperties: { quotation: 'P2', code: 'P3', math: 'P4' },
+							programmingLanguage: 'P5',
+							describes: 'P29',
+							implementationOf: 'P30',
+							provenance: { attributedTo: 'P6', sourceUrl: 'P7', date: 'P8', source: 'P28' },
+						},
+					},
+				});
+			}
 			return Promise.resolve(vocabularyRequestResponse());
 		}),
 	});
