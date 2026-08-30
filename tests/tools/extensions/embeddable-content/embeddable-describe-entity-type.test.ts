@@ -116,6 +116,48 @@ function contextWith() {
 					},
 				});
 			}
+			if (params.action === 'addsemanticentity-fields') {
+				return Promise.resolve({
+					semanticfields: {
+						kinds: [
+							{
+								kind: 'person',
+								fields: ['givenName', 'familyName', 'description', 'dateOfBirth', 'orcid'],
+								requiredOnCreate: ['givenName', 'familyName'],
+							},
+							{
+								kind: 'software',
+								fields: ['label', 'developer', 'license'],
+								requiredOnCreate: ['label'],
+							},
+							{
+								kind: 'collective',
+								fields: ['label', 'collectiveClass'],
+								requiredOnCreate: ['label'],
+							},
+							{
+								kind: 'fictional-character',
+								fields: ['givenName', 'familyName', 'presentInWork'],
+								requiredOnCreate: ['givenName', 'familyName'],
+							},
+							{
+								kind: 'other',
+								fields: ['label', 'instanceOf'],
+								requiredOnCreate: ['label', 'instanceOf'],
+							},
+						],
+						propertyIds: {
+							instanceOf: 'P1',
+							programmingLanguage: 'P5',
+							personProperties: { dateOfBirth: 'P50', officialWebsite: 'P36' },
+							fossProperties: { developer: 'P33', license: 'P34' },
+							collectiveProperties: { parentOrganization: 'P60' },
+							fictionalCharacter: { appearsIn: 'P59' },
+							externalIds: { orcid: 'P13' },
+						},
+					},
+				});
+			}
 			return Promise.resolve(vocabularyRequestResponse());
 		}),
 	});
@@ -181,8 +223,8 @@ describe('embeddable-describe-entity-type', () => {
 		const kinds = data.semanticEntity.kinds.map((k: { kind: string }) => k.kind);
 		expect(kinds).toEqual(['person', 'software', 'collective', 'fictional-character', 'other']);
 		const person = data.semanticEntity.kinds.find((k: { kind: string }) => k.kind === 'person');
-		expect(person.fields.map((f: { field: string }) => f.field)).toContain('orcid');
-		expect(person.fields.find((f: { field: string }) => f.field === 'orcid').property).toBe('P13');
+		expect(person.fields).toContain('orcid');
+		expect(person.requiredOnCreate).toEqual(['givenName', 'familyName']);
 		expect(data.propertyIds.personProperties.dateOfBirth).toBe('P50');
 		expect(data.propertyIds.fossProperties.developer).toBe('P33');
 		expect(data.citationSource).toBeUndefined();

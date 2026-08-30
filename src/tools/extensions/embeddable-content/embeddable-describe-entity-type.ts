@@ -165,23 +165,19 @@ export const embeddableDescribeEntityType: Tool<typeof inputSchema> = {
 		}
 		const semanticEntity =
 			kind === undefined || kind === 'semantic-entity'
-				? {
-						kinds: SEMANTIC_KIND_SCHEMA.map((entry) => ({
-							kind: entry.kind,
-							classItem: entry.classId,
-							fields: [...entry.fields].map((field) => ({
-								field,
-								property: semanticFieldProperty(field, vocabulary),
-							})),
-							requiredOnCreate: entry.requiredOnCreate,
-							example: entry.example,
-						})),
-					}
+				? await fetchSemanticEntityFields(ctx)
 				: undefined;
-		// The source-related property ids come from the wiki's config (via the
-		// fields endpoint when it answered); the rest resolve locally.
+		if (kind === 'semantic-entity' && semanticEntity === undefined) {
+			return ctx.format.error(
+				'upstream_failure',
+				'The wiki did not answer action=addsemanticentity-fields — its EmbeddableContent version is too old to serve the semantic-entity field contract.',
+			);
+		}
+		// The property ids come from the wiki's config (via the fields
+		// endpoints when they answered); the rest resolve locally.
 		const sourcePropertyIds = citationSource?.propertyIds;
 		const contentPropertyIds = specialContent?.propertyIds;
+		const semanticPropertyIds = semanticEntity?.propertyIds;
 
 		return ctx.format.ok({
 			propertyIds: {
@@ -195,10 +191,12 @@ export const embeddableDescribeEntityType: Tool<typeof inputSchema> = {
 				citationMetadata: sourcePropertyIds?.citationMetadata ?? vocabulary.citationMetadata,
 				sourceProperties: sourcePropertyIds?.sourceProperties ?? vocabulary.sourceProperties,
 				externalIds: sourcePropertyIds?.externalIds ?? vocabulary.externalIds,
-				personProperties: vocabulary.personProperties,
-				fossProperties: vocabulary.fossProperties,
-				collectiveProperties: vocabulary.collectiveProperties,
-				fictionalCharacter: vocabulary.fictionalCharacter,
+				personProperties: semanticPropertyIds?.personProperties ?? vocabulary.personProperties,
+				fossProperties: semanticPropertyIds?.fossProperties ?? vocabulary.fossProperties,
+				collectiveProperties:
+					semanticPropertyIds?.collectiveProperties ?? vocabulary.collectiveProperties,
+				fictionalCharacter:
+					semanticPropertyIds?.fictionalCharacter ?? vocabulary.fictionalCharacter,
 			},
 			...(specialContent !== undefined ? { specialContent } : {}),
 			...(citationSource !== undefined ? { citationSource } : {}),
@@ -212,162 +210,83 @@ export const embeddableDescribeEntityType: Tool<typeof inputSchema> = {
 	},
 };
 
-/** The class item id and fields per semantic kind, for the discovery output. */
-const SEMANTIC_KIND_SCHEMA: readonly {
-	kind: string;
-	classId: string;
-	fields: readonly string[];
-	requiredOnCreate: string;
-	example: Record<string, string>;
-}[] = [
-	{
-		kind: 'person',
-		classId: 'person',
-		fields: [
-			'givenName',
-			'familyName',
-			'description',
-			'dateOfBirth',
-			'placeOfBirth',
-			'dateOfDeath',
-			'placeOfDeath',
-			'orcid',
-			'viafId',
-			'isni',
-			'wikidataId',
-			'openalexAuthorId',
-			'officialWebsite',
-		],
-		requiredOnCreate: 'givenName or familyName (the label is built from them)',
-		example: {
-			kind: 'person',
-			givenName: 'Ada',
-			familyName: 'Lovelace',
-			orcid: '0000-0000-0000-0000',
-		},
-	},
-	{
-		kind: 'software',
-		classId: 'software',
-		fields: [
-			'label',
-			'description',
-			'developer',
-			'license',
-			'programmingLanguage',
-			'operatingSystem',
-			'userInterface',
-			'hasUse',
-			'officialWebsite',
-			'sourceCodeRepository',
-			'documentationUrl',
-			'wikidataId',
-		],
-		requiredOnCreate: 'label',
-		example: { kind: 'software', label: 'Example FOSS Project', license: 'Q302' },
-	},
-	{
-		kind: 'collective',
-		classId: 'organization',
-		fields: [
-			'label',
-			'description',
-			'collectiveClass',
-			'parentOrganization',
-			'officialWebsite',
-			'wikidataId',
-		],
-		requiredOnCreate: 'label',
-		example: {
-			kind: 'collective',
-			label: 'Example Organization',
-			collectiveClass: 'non-profit-organization',
-		},
-	},
-	{
-		kind: 'fictional-character',
-		classId: 'fictionalCharacter',
-		fields: ['givenName', 'familyName', 'description', 'presentInWork'],
-		requiredOnCreate: 'givenName or familyName (the label is built from them)',
-		example: {
-			kind: 'fictional-character',
-			givenName: 'Sherlock',
-			familyName: 'Holmes',
-			presentInWork: 'Q42',
-		},
-	},
-	{
-		kind: 'other',
-		classId: 'instanceOf',
-		fields: ['label', 'description', 'instanceOf', 'statements'],
-		requiredOnCreate: 'label and instanceOf',
-		example: { kind: 'other', label: 'Anything', instanceOf: 'Q163' },
-	},
-];
+interface SemanticEntityFieldContract {
+	kinds: {
+		kind?: string;
+		fields?: string[];
+		requiredOnCreate?: string[];
+		example?: Record<string, string>;
+	}[];
+	propertyIds: {
+		instanceOf?: string;
+		programmingLanguage?: string;
+		personProperties?: Record<string, string>;
+		fossProperties?: Record<string, string>;
+		collectiveProperties?: Record<string, string>;
+		fictionalCharacter?: Record<string, string>;
+		externalIds?: Record<string, string>;
+	};
+}
 
-function semanticFieldProperty(
-	field: string,
-	vocabulary: {
-		personProperties: Record<string, string>;
-		fossProperties: Record<string, string>;
-		collectiveProperties: Record<string, string>;
-		fictionalCharacter: Record<string, string>;
-		externalIds: Record<string, string>;
-		programmingLanguage: string;
-		instanceOf: string;
+/** The example submission per kind, shown by the discovery output. */
+const SEMANTIC_EXAMPLES: Record<string, Record<string, string>> = {
+	person: {
+		kind: 'person',
+		givenName: 'Ada',
+		familyName: 'Lovelace',
+		orcid: '0000-0000-0000-0000',
 	},
-): string {
-	switch (field) {
-		case 'instanceOf':
-			return vocabulary.instanceOf;
-		case 'programmingLanguage':
-			return vocabulary.programmingLanguage;
-		case 'officialWebsite':
-			return vocabulary.personProperties.officialWebsite;
-		case 'dateOfBirth':
-			return vocabulary.personProperties.dateOfBirth;
-		case 'placeOfBirth':
-			return vocabulary.personProperties.placeOfBirth;
-		case 'dateOfDeath':
-			return vocabulary.personProperties.dateOfDeath;
-		case 'placeOfDeath':
-			return vocabulary.personProperties.placeOfDeath;
-		case 'developer':
-			return vocabulary.fossProperties.developer;
-		case 'license':
-			return vocabulary.fossProperties.license;
-		case 'operatingSystem':
-			return vocabulary.fossProperties.operatingSystem;
-		case 'userInterface':
-			return vocabulary.fossProperties.userInterface;
-		case 'hasUse':
-			return vocabulary.fossProperties.hasUse;
-		case 'sourceCodeRepository':
-			return vocabulary.fossProperties.sourceCodeRepository;
-		case 'documentationUrl':
-			return vocabulary.fossProperties.documentationUrl;
-		case 'parentOrganization':
-			return vocabulary.collectiveProperties.parentOrganization;
-		case 'presentInWork':
-			return vocabulary.fictionalCharacter.presentInWork;
-		case 'orcid':
-			return vocabulary.externalIds.orcid;
-		case 'viafId':
-			return vocabulary.externalIds.viafId;
-		case 'isni':
-			return vocabulary.externalIds.isni;
-		case 'wikidataId':
-			return vocabulary.externalIds.wikidataId;
-		case 'openalexAuthorId':
-			return vocabulary.externalIds.openalexAuthorId;
-		case 'label':
-		case 'description':
-		case 'givenName':
-		case 'familyName':
-		case 'collectiveClass':
-		case 'statements':
-			return 'not a statement (term / class picker / raw claims)';
+	software: { kind: 'software', label: 'Example FOSS Project', license: 'Q302' },
+	collective: {
+		kind: 'collective',
+		label: 'Example Organization',
+		collectiveClass: 'non-profit-organization',
+	},
+	'fictional-character': {
+		kind: 'fictional-character',
+		givenName: 'Sherlock',
+		familyName: 'Holmes',
+		presentInWork: 'Q42',
+	},
+	other: { kind: 'other', label: 'Anything', instanceOf: 'Q163' },
+};
+
+/**
+ * Fetches the semantic-entity field contract from the wiki's own
+ * action=addsemanticentity-fields endpoint. Returns undefined when the wiki
+ * did not answer it (an EmbeddableContent version too old to serve it).
+ */
+async function fetchSemanticEntityFields(
+	ctx: ToolContext,
+): Promise<SemanticEntityFieldContract | undefined> {
+	const mwn = await ctx.mwn();
+	// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- action=addsemanticentity-fields response shape; trusted at this boundary
+	const response = (await mwn.request({
+		action: 'addsemanticentity-fields',
+		formatversion: '2',
+	})) as {
+		semanticfields?: {
+			kinds?: {
+				kind?: string;
+				fields?: string[];
+				requiredOnCreate?: string[];
+			}[];
+			propertyIds?: SemanticEntityFieldContract['propertyIds'];
+		};
+	};
+	const fields = response.semanticfields;
+	if (fields?.kinds === undefined || fields.propertyIds === undefined) {
+		return undefined;
 	}
-	// Every semantic field is handled above; the union is exhaustive.
-	return 'not a statement (term / class picker / raw claims)';
+	return {
+		kinds: fields.kinds.map((k) => ({
+			kind: k.kind,
+			fields: k.fields ?? [],
+			requiredOnCreate: k.requiredOnCreate ?? [],
+			...(k.kind !== undefined && SEMANTIC_EXAMPLES[k.kind] !== undefined
+				? { example: SEMANTIC_EXAMPLES[k.kind] }
+				: {}),
+		})),
+		propertyIds: fields.propertyIds,
+	};
 }
