@@ -53,6 +53,26 @@ describe('embeddable-describe-entity-type', () => {
 		).toBe('website');
 	});
 
+	it('reports the semantic-entity kinds and their fields', async () => {
+		const ctx = contextWith();
+
+		const result = await embeddableDescribeEntityType.handle(
+			toolArgs(embeddableDescribeEntityType, { kind: 'semantic-entity' }),
+			ctx,
+		);
+
+		const data = assertStructuredData(result);
+		const kinds = data.semanticEntity.kinds.map((k: { kind: string }) => k.kind);
+		expect(kinds).toEqual(['person', 'software', 'collective', 'fictional-character', 'other']);
+		const person = data.semanticEntity.kinds.find((k: { kind: string }) => k.kind === 'person');
+		expect(person.fields.map((f: { field: string }) => f.field)).toContain('orcid');
+		expect(person.fields.find((f: { field: string }) => f.field === 'orcid').property).toBe('P13');
+		expect(data.propertyIds.personProperties.dateOfBirth).toBe('P50');
+		expect(data.propertyIds.fossProperties.developer).toBe('P33');
+		expect(data.citationSource).toBeUndefined();
+		expect(data.specialContent).toBeUndefined();
+	});
+
 	it('narrows to one family with kind', async () => {
 		const ctx = contextWith();
 

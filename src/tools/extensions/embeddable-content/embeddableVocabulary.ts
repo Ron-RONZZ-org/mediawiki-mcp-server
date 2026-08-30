@@ -14,7 +14,15 @@ export interface EmbeddableVocabulary {
 	readonly describes: string;
 	readonly implementationOf: string;
 	readonly externalIds: Record<
-		'wikidataId' | 'doi' | 'isbn13' | 'openalexWorkId' | 'pubmedId',
+		| 'wikidataId'
+		| 'orcid'
+		| 'viafId'
+		| 'isni'
+		| 'doi'
+		| 'isbn13'
+		| 'openalexWorkId'
+		| 'pubmedId'
+		| 'openalexAuthorId',
 		string
 	>;
 	readonly sourceProperties: Record<
@@ -28,6 +36,23 @@ export interface EmbeddableVocabulary {
 		string
 	>;
 	readonly citationMetadata: Record<'publisher' | 'journal' | 'pages' | 'volume' | 'issue', string>;
+	readonly personProperties: Record<
+		'dateOfBirth' | 'placeOfBirth' | 'dateOfDeath' | 'placeOfDeath' | 'officialWebsite',
+		string
+	>;
+	readonly fossProperties: Record<
+		| 'developer'
+		| 'license'
+		| 'operatingSystem'
+		| 'userInterface'
+		| 'hasUse'
+		| 'officialWebsite'
+		| 'sourceCodeRepository'
+		| 'documentationUrl',
+		string
+	>;
+	readonly collectiveProperties: Record<'parentOrganization' | 'officialWebsite', string>;
+	readonly fictionalCharacter: Record<'presentInWork', string>;
 }
 
 /** Item IDs of the classes the Add* flows classify items under. */
@@ -45,6 +70,22 @@ export interface EmbeddableClasses {
 	readonly youtubeChannel: string;
 	readonly youtubeVideo: string;
 	readonly bookExcerpt: string;
+	readonly person: string;
+	readonly software: string;
+	readonly organization: string;
+	readonly groupOfHumans: string;
+	readonly privateCompany: string;
+	readonly publicCompany: string;
+	readonly nonProfitOrganization: string;
+	readonly governmentalAgency: string;
+	readonly musicBand: string;
+	readonly educationalInstitution: string;
+	readonly researchInstitute: string;
+	readonly politicalParty: string;
+	readonly tradeUnion: string;
+	readonly religiousOrganization: string;
+	readonly sportsTeam: string;
+	readonly fictionalCharacter: string;
 }
 
 export interface ResolvedVocabulary {
@@ -74,10 +115,14 @@ const DEFAULT_VOCABULARY: EmbeddableVocabulary = {
 	implementationOf: 'P30',
 	externalIds: {
 		wikidataId: 'P12',
+		orcid: 'P13',
+		viafId: 'P14',
+		isni: 'P15',
 		doi: 'P16',
 		isbn13: 'P17',
 		openalexWorkId: 'P18',
 		pubmedId: 'P19',
+		openalexAuthorId: 'P58',
 	},
 	sourceProperties: {
 		partOf: 'P44',
@@ -89,6 +134,25 @@ const DEFAULT_VOCABULARY: EmbeddableVocabulary = {
 		accessUrl: 'P55',
 	},
 	citationMetadata: { publisher: 'P54', journal: 'P57', pages: 'P24', volume: 'P25', issue: 'P26' },
+	personProperties: {
+		dateOfBirth: 'P50',
+		placeOfBirth: 'P51',
+		dateOfDeath: 'P52',
+		placeOfDeath: 'P53',
+		officialWebsite: 'P36',
+	},
+	fossProperties: {
+		developer: 'P33',
+		license: 'P34',
+		operatingSystem: 'P35',
+		userInterface: 'P41',
+		hasUse: 'P39',
+		officialWebsite: 'P36',
+		sourceCodeRepository: 'P37',
+		documentationUrl: 'P43',
+	},
+	collectiveProperties: { parentOrganization: 'P60', officialWebsite: 'P36' },
+	fictionalCharacter: { presentInWork: 'P59' },
 };
 
 const DEFAULT_CLASSES: EmbeddableClasses = {
@@ -105,6 +169,22 @@ const DEFAULT_CLASSES: EmbeddableClasses = {
 	youtubeChannel: 'Q337',
 	youtubeVideo: 'Q338',
 	bookExcerpt: 'Q340',
+	person: 'Q6',
+	software: 'Q179',
+	organization: 'Q7',
+	groupOfHumans: 'Q8',
+	privateCompany: 'Q341',
+	publicCompany: 'Q342',
+	nonProfitOrganization: 'Q343',
+	governmentalAgency: 'Q344',
+	musicBand: 'Q345',
+	educationalInstitution: 'Q346',
+	researchInstitute: 'Q347',
+	politicalParty: 'Q348',
+	tradeUnion: 'Q349',
+	religiousOrganization: 'Q350',
+	sportsTeam: 'Q351',
+	fictionalCharacter: 'Q364',
 };
 
 /** path → [default ID, expected English label] for every vocabulary property. */
@@ -137,6 +217,26 @@ const PROPERTY_ENTRIES: readonly (readonly [Path, string, string])[] = [
 	['citationMetadata.pages', 'P24', 'page(s)'],
 	['citationMetadata.volume', 'P25', 'volume'],
 	['citationMetadata.issue', 'P26', 'issue'],
+	['personProperties.dateOfBirth', 'P50', 'date of birth'],
+	['personProperties.placeOfBirth', 'P51', 'place of birth'],
+	['personProperties.dateOfDeath', 'P52', 'date of death'],
+	['personProperties.placeOfDeath', 'P53', 'place of death'],
+	['personProperties.officialWebsite', 'P36', 'official website'],
+	['fossProperties.developer', 'P33', 'developer'],
+	['fossProperties.license', 'P34', 'license'],
+	['fossProperties.operatingSystem', 'P35', 'operating system'],
+	['fossProperties.userInterface', 'P41', 'user interface'],
+	['fossProperties.hasUse', 'P39', 'has use'],
+	['fossProperties.officialWebsite', 'P36', 'official website'],
+	['fossProperties.sourceCodeRepository', 'P37', 'source code repository'],
+	['fossProperties.documentationUrl', 'P43', 'documentation URL'],
+	['collectiveProperties.parentOrganization', 'P60', 'parent organization'],
+	['collectiveProperties.officialWebsite', 'P36', 'official website'],
+	['fictionalCharacter.presentInWork', 'P59', 'present in work'],
+	['externalIds.orcid', 'P13', 'ORCID'],
+	['externalIds.viafId', 'P14', 'VIAF ID'],
+	['externalIds.isni', 'P15', 'ISNI'],
+	['externalIds.openalexAuthorId', 'P58', 'OpenAlex author ID'],
 ];
 
 /** class key → [default ID, expected English label] for every Add* class. */
@@ -154,6 +254,22 @@ const CLASS_ENTRIES: readonly (readonly [Path, string, string])[] = [
 	['youtubeChannel', 'Q337', 'YouTube channel'],
 	['youtubeVideo', 'Q338', 'YouTube video'],
 	['bookExcerpt', 'Q340', 'book excerpt'],
+	['person', 'Q6', 'person'],
+	['software', 'Q179', 'free and open-source software'],
+	['organization', 'Q7', 'organization'],
+	['groupOfHumans', 'Q8', 'group of humans'],
+	['privateCompany', 'Q341', 'private company'],
+	['publicCompany', 'Q342', 'public company'],
+	['nonProfitOrganization', 'Q343', 'non-profit organization'],
+	['governmentalAgency', 'Q344', 'governmental agency'],
+	['musicBand', 'Q345', 'music band'],
+	['educationalInstitution', 'Q346', 'educational institution'],
+	['researchInstitute', 'Q347', 'research institute'],
+	['politicalParty', 'Q348', 'political party'],
+	['tradeUnion', 'Q349', 'trade union'],
+	['religiousOrganization', 'Q350', 'religious organization'],
+	['sportsTeam', 'Q351', 'sports team'],
+	['fictionalCharacter', 'Q364', 'fictional character'],
 ];
 
 interface TermValue {

@@ -190,6 +190,33 @@ export function stripMathDelimiters(payload: string): string {
 /** A `YYYY-MM-DD` day date is required for the form's `date` field. */
 export const DAY_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
+/**
+ * An item ID as-is, or the item whose English label equals the value —
+ * the autofill the entity comboboxes do on the forms.
+ */
+export async function resolveItemIdOrLabel(
+	ctx: ToolContext,
+	value: string,
+): Promise<string | undefined> {
+	const trimmed = value.trim();
+	if (ITEM_ID.test(trimmed)) {
+		return trimmed.toUpperCase();
+	}
+	const mwn: Mwn = await ctx.mwn();
+	// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- wbsearchentities response shape; trusted at this boundary
+	const response = (await mwn.request({
+		action: 'wbsearchentities',
+		search: trimmed,
+		language: 'en',
+		type: 'item',
+		limit: 10,
+		format: 'json',
+		formatversion: '2',
+	})) as { search?: { id?: string; label?: string }[] };
+
+	return response.search?.find((result) => result.label === trimmed)?.id;
+}
+
 interface EntityResponse {
 	id?: string;
 	type?: string;

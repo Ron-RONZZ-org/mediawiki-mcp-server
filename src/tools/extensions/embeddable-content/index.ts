@@ -1,6 +1,7 @@
 import type { ExtensionPack } from '../types.ts';
 import { embeddableAddSpecialContent } from './embeddable-add-special-content.ts';
 import { embeddableAddCitationSource } from './embeddable-add-citation-source.ts';
+import { embeddableAddSemanticEntity } from './embeddable-add-semantic-entity.ts';
 import { embeddableGetEmbedContent } from './embeddable-get-embed-content.ts';
 import { embeddableDescribeEntityType } from './embeddable-describe-entity-type.ts';
 
@@ -12,6 +13,7 @@ export const embeddableContentPack: ExtensionPack = {
 	tools: [
 		embeddableAddSpecialContent,
 		embeddableAddCitationSource,
+		embeddableAddSemanticEntity,
 		embeddableGetEmbedContent,
 		embeddableDescribeEntityType,
 	],

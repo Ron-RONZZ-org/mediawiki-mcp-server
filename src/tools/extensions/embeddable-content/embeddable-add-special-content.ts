@@ -2,7 +2,6 @@ import { z } from 'zod';
 import type { CallToolResult } from '@modelcontextprotocol/server';
 import type { Tool } from '../../../runtime/tool.ts';
 import type { ToolContext } from '../../../runtime/context.ts';
-import type { Mwn } from 'mwn';
 import type { EmbeddableClasses, EmbeddableVocabulary } from './embeddableVocabulary.ts';
 import { resolveVocabulary } from './embeddableVocabulary.ts';
 import { PAYLOAD_KEY, SPECIAL_CONTENT_KINDS } from './embeddableSchema.ts';
@@ -23,6 +22,7 @@ import {
 	stripMathDelimiters,
 	submitEntityWrite,
 	isHttpUrl,
+	resolveItemIdOrLabel,
 } from './embeddableWrite.ts';
 
 const KINDS = SPECIAL_CONTENT_KINDS;
@@ -396,25 +396,4 @@ async function updateExisting(
 
 function parseIdList(input: string | undefined): string[] | null {
 	return splitItemIds(input);
-}
-
-/** An item ID as-is, or the item whose English label equals the value. */
-async function resolveItemIdOrLabel(ctx: ToolContext, value: string): Promise<string | undefined> {
-	const trimmed = value.trim();
-	if (ITEM_ID.test(trimmed)) {
-		return trimmed.toUpperCase();
-	}
-	const mwn: Mwn = await ctx.mwn();
-	// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- wbsearchentities response shape; trusted at this boundary
-	const response = (await mwn.request({
-		action: 'wbsearchentities',
-		search: trimmed,
-		language: 'en',
-		type: 'item',
-		limit: 10,
-		format: 'json',
-		formatversion: '2',
-	})) as { search?: { id?: string; label?: string }[] };
-
-	return response.search?.find((result) => result.label === trimmed)?.id;
 }

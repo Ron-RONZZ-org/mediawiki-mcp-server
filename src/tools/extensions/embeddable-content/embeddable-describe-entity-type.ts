@@ -17,17 +17,17 @@ import {
 
 const inputSchema = {
 	kind: z
-		.enum(['special-content', 'citation-source'])
+		.enum(['special-content', 'citation-source', 'semantic-entity'])
 		.optional()
 		.describe(
-			'Narrow the report to one family: the special-content Add* forms (quotation, math, code-snippet) or the citation-source AddSource classes. Omitted, both are returned.',
+			'Narrow the report to one family: the special-content Add* forms (quotation, math, code-snippet), the citation-source AddSource classes, or the semantic-entity Add* forms (person, software, collective, fictional-character, other). Omitted, all are returned.',
 		),
 } as const;
 
 export const embeddableDescribeEntityType: Tool<typeof inputSchema> = {
 	name: 'embeddable-describe-entity-type',
 	description:
-		'Returns the field tables, resolved property IDs and a ready-to-submit example for the EmbeddableContent Add* flows, as the discovery counterpart of embeddable-add-special-content and embeddable-add-citation-source. Enabled only when the wiki has the EmbeddableContent extension.\n\nCall this before the add tools to see exactly which fields a kind or class exposes, which properties they are stored on (resolved on this wiki), and a JSON example of a full submission.',
+		'Returns the field tables, resolved property IDs and a ready-to-submit example for the EmbeddableContent Add* flows, as the discovery counterpart of embeddable-add-special-content, embeddable-add-citation-source and embeddable-add-semantic-entity. Enabled only when the wiki has the EmbeddableContent extension.\n\nCall this before the add tools to see exactly which fields a kind or class exposes, which properties they are stored on (resolved on this wiki), and a JSON example of a full submission.',
 	inputSchema,
 	annotations: {
 		title: 'Describe entity type',
@@ -99,6 +99,22 @@ export const embeddableDescribeEntityType: Tool<typeof inputSchema> = {
 					}
 				: undefined;
 
+		const semanticEntity =
+			kind === undefined || kind === 'semantic-entity'
+				? {
+						kinds: SEMANTIC_KIND_SCHEMA.map((entry) => ({
+							kind: entry.kind,
+							classItem: entry.classId,
+							fields: [...entry.fields].map((field) => ({
+								field,
+								property: semanticFieldProperty(field, vocabulary),
+							})),
+							requiredOnCreate: entry.requiredOnCreate,
+							example: entry.example,
+						})),
+					}
+				: undefined;
+
 		return ctx.format.ok({
 			propertyIds: {
 				instanceOf: vocabulary.instanceOf,
@@ -110,9 +126,14 @@ export const embeddableDescribeEntityType: Tool<typeof inputSchema> = {
 				citationMetadata: vocabulary.citationMetadata,
 				sourceProperties: vocabulary.sourceProperties,
 				externalIds: vocabulary.externalIds,
+				personProperties: vocabulary.personProperties,
+				fossProperties: vocabulary.fossProperties,
+				collectiveProperties: vocabulary.collectiveProperties,
+				fictionalCharacter: vocabulary.fictionalCharacter,
 			},
 			...(specialContent !== undefined ? { specialContent } : {}),
 			...(citationSource !== undefined ? { citationSource } : {}),
+			...(semanticEntity !== undefined ? { semanticEntity } : {}),
 			...(missing.length > 0
 				? {
 						unresolvedVocabulary: missing,
@@ -194,4 +215,164 @@ function fieldPathLabel(
 	}
 	// Every source field is handled above; the union is exhaustive.
 	return 'term (label / description), not a statement';
+}
+
+/** The class item id and fields per semantic kind, for the discovery output. */
+const SEMANTIC_KIND_SCHEMA: readonly {
+	kind: string;
+	classId: string;
+	fields: readonly string[];
+	requiredOnCreate: string;
+	example: Record<string, string>;
+}[] = [
+	{
+		kind: 'person',
+		classId: 'person',
+		fields: [
+			'givenName',
+			'familyName',
+			'description',
+			'dateOfBirth',
+			'placeOfBirth',
+			'dateOfDeath',
+			'placeOfDeath',
+			'orcid',
+			'viafId',
+			'isni',
+			'wikidataId',
+			'openalexAuthorId',
+			'officialWebsite',
+		],
+		requiredOnCreate: 'givenName or familyName (the label is built from them)',
+		example: {
+			kind: 'person',
+			givenName: 'Ada',
+			familyName: 'Lovelace',
+			orcid: '0000-0000-0000-0000',
+		},
+	},
+	{
+		kind: 'software',
+		classId: 'software',
+		fields: [
+			'label',
+			'description',
+			'developer',
+			'license',
+			'programmingLanguage',
+			'operatingSystem',
+			'userInterface',
+			'hasUse',
+			'officialWebsite',
+			'sourceCodeRepository',
+			'documentationUrl',
+			'wikidataId',
+		],
+		requiredOnCreate: 'label',
+		example: { kind: 'software', label: 'Example FOSS Project', license: 'Q302' },
+	},
+	{
+		kind: 'collective',
+		classId: 'organization',
+		fields: [
+			'label',
+			'description',
+			'collectiveClass',
+			'parentOrganization',
+			'officialWebsite',
+			'wikidataId',
+		],
+		requiredOnCreate: 'label',
+		example: {
+			kind: 'collective',
+			label: 'Example Organization',
+			collectiveClass: 'non-profit-organization',
+		},
+	},
+	{
+		kind: 'fictional-character',
+		classId: 'fictionalCharacter',
+		fields: ['givenName', 'familyName', 'description', 'presentInWork'],
+		requiredOnCreate: 'givenName or familyName (the label is built from them)',
+		example: {
+			kind: 'fictional-character',
+			givenName: 'Sherlock',
+			familyName: 'Holmes',
+			presentInWork: 'Q42',
+		},
+	},
+	{
+		kind: 'other',
+		classId: 'instanceOf',
+		fields: ['label', 'description', 'instanceOf', 'statements'],
+		requiredOnCreate: 'label and instanceOf',
+		example: { kind: 'other', label: 'Anything', instanceOf: 'Q163' },
+	},
+];
+
+function semanticFieldProperty(
+	field: string,
+	vocabulary: {
+		personProperties: Record<string, string>;
+		fossProperties: Record<string, string>;
+		collectiveProperties: Record<string, string>;
+		fictionalCharacter: Record<string, string>;
+		externalIds: Record<string, string>;
+		programmingLanguage: string;
+		instanceOf: string;
+	},
+): string {
+	switch (field) {
+		case 'instanceOf':
+			return vocabulary.instanceOf;
+		case 'programmingLanguage':
+			return vocabulary.programmingLanguage;
+		case 'officialWebsite':
+			return vocabulary.personProperties.officialWebsite;
+		case 'dateOfBirth':
+			return vocabulary.personProperties.dateOfBirth;
+		case 'placeOfBirth':
+			return vocabulary.personProperties.placeOfBirth;
+		case 'dateOfDeath':
+			return vocabulary.personProperties.dateOfDeath;
+		case 'placeOfDeath':
+			return vocabulary.personProperties.placeOfDeath;
+		case 'developer':
+			return vocabulary.fossProperties.developer;
+		case 'license':
+			return vocabulary.fossProperties.license;
+		case 'operatingSystem':
+			return vocabulary.fossProperties.operatingSystem;
+		case 'userInterface':
+			return vocabulary.fossProperties.userInterface;
+		case 'hasUse':
+			return vocabulary.fossProperties.hasUse;
+		case 'sourceCodeRepository':
+			return vocabulary.fossProperties.sourceCodeRepository;
+		case 'documentationUrl':
+			return vocabulary.fossProperties.documentationUrl;
+		case 'parentOrganization':
+			return vocabulary.collectiveProperties.parentOrganization;
+		case 'presentInWork':
+			return vocabulary.fictionalCharacter.presentInWork;
+		case 'orcid':
+			return vocabulary.externalIds.orcid;
+		case 'viafId':
+			return vocabulary.externalIds.viafId;
+		case 'isni':
+			return vocabulary.externalIds.isni;
+		case 'wikidataId':
+			return vocabulary.externalIds.wikidataId;
+		case 'openalexAuthorId':
+			return vocabulary.externalIds.openalexAuthorId;
+		case 'label':
+		case 'description':
+		case 'givenName':
+		case 'familyName':
+		case 'collectiveClass':
+		case 'statements':
+			return 'not a statement (term / class picker / raw claims)';
+	}
+	// Every semantic field is handled above; the union is exhaustive.
+	return 'not a statement (term / class picker / raw claims)';
 }
