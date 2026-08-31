@@ -216,8 +216,8 @@ export const embeddableAddSemanticEntity: Tool<typeof inputSchema> = {
 				entityId?: string;
 				entityType?: string;
 				latestRevisionId?: number;
-				created?: boolean;
-				updated?: boolean;
+				created?: boolean | string;
+				updated?: boolean | string;
 				pageTitle?: string;
 			};
 		};
@@ -233,8 +233,8 @@ export const embeddableAddSemanticEntity: Tool<typeof inputSchema> = {
 			entityId: semantic.entityId,
 			entityType: semantic.entityType,
 			latestRevisionId: semantic.latestRevisionId,
-			...(semantic.created === true ? { created: true } : {}),
-			...(semantic.updated === true ? { updated: true } : {}),
+			...(semantic.created === true || semantic.created === '1' ? { created: true } : {}),
+			...(semantic.updated === true || semantic.updated === '1' ? { updated: true } : {}),
 			...(typeof semantic.pageTitle === 'string' ? { pageTitle: semantic.pageTitle } : {}),
 		});
 	},

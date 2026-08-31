@@ -121,6 +121,21 @@ describe('embeddable-add-citation-source', () => {
 		expect(submit.mock.calls[0][1]).toMatchObject({ summary: 'adding the reference' });
 	});
 
+	it('treats the wiki string flags (created: "1") as created', async () => {
+		// MediaWiki's ApiResult serializes true as '' — the API modules
+		// return '1' instead; the tool must read either form.
+		const { ctx } = contextWith({
+			source: { entityId: 'Q777', entityType: 'item', latestRevisionId: 12, created: '1' },
+		});
+
+		const result = await embeddableAddCitationSource.handle(
+			toolArgs(embeddableAddCitationSource, { classKey: 'book', title: 'X', authors: 'Q6' }),
+			ctx,
+		);
+
+		expect(assertStructuredData(result)).toMatchObject({ entityId: 'Q777', created: true });
+	});
+
 	it('reports an empty wiki answer as an upstream failure', async () => {
 		const { ctx } = contextWith({});
 

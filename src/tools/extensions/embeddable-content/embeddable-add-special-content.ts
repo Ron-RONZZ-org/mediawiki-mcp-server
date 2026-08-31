@@ -156,8 +156,8 @@ export const embeddableAddSpecialContent: Tool<typeof inputSchema> = {
 				entityId?: string;
 				entityType?: string;
 				latestRevisionId?: number;
-				created?: boolean;
-				updated?: boolean;
+				created?: boolean | string;
+				updated?: boolean | string;
 			};
 		};
 
@@ -172,8 +172,8 @@ export const embeddableAddSpecialContent: Tool<typeof inputSchema> = {
 			entityId: content.entityId,
 			entityType: content.entityType,
 			latestRevisionId: content.latestRevisionId,
-			...(content.created === true ? { created: true } : {}),
-			...(content.updated === true ? { updated: true } : {}),
+			...(content.created === true || content.created === '1' ? { created: true } : {}),
+			...(content.updated === true || content.updated === '1' ? { updated: true } : {}),
 		});
 	},
 };

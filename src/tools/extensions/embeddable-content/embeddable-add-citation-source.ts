@@ -144,8 +144,8 @@ export const embeddableAddCitationSource: Tool<typeof inputSchema> = {
 				entityId?: string;
 				entityType?: string;
 				latestRevisionId?: number;
-				created?: boolean;
-				updated?: boolean;
+				created?: boolean | string;
+				updated?: boolean | string;
 				pageTitle?: string;
 			};
 		};
@@ -161,8 +161,8 @@ export const embeddableAddCitationSource: Tool<typeof inputSchema> = {
 			entityId: source.entityId,
 			entityType: source.entityType,
 			latestRevisionId: source.latestRevisionId,
-			...(source.created === true ? { created: true } : {}),
-			...(source.updated === true ? { updated: true } : {}),
+			...(source.created === true || source.created === '1' ? { created: true } : {}),
+			...(source.updated === true || source.updated === '1' ? { updated: true } : {}),
 			...(typeof source.pageTitle === 'string' ? { pageTitle: source.pageTitle } : {}),
 		});
 	},
