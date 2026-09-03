@@ -1,0 +1,82 @@
+# Live-wiki E2E stack for the MCP server's CI job (and local runs).
+#
+# Boots a stock Wikibase Suite (MediaWiki 1.46 + the Wikibase repo extension,
+# wikibase/wikibase:mw1.46.0) so the built server can be driven through real
+# tools/call round-trips against a real MediaWiki API. No custom extensions
+# and no WDQS: the EmbeddableContent / WikibaseCitation packs are gated on the
+# ronzz extensions and stay covered by the unit suite; this stack exercises
+# the core page tools and the Wikibase-pack tools.
+#
+# The WBS image contract (mirrors wmde/wikibase-docker and the ronzz-wikibase
+# dev stack): a writable configuration volume at /config, an admin account
+# from MW_ADMIN_*, a MariaDB, and a jobrunner container sharing the config.
+#
+# Usage (from the repo root):
+#   E2E_CONFIG_DIR=/tmp/mcp-e2e-config docker compose -p mcp-e2e \
+#     -f scripts/e2e/docker-compose.yml up -d --wait
+#   node scripts/e2e/run-e2e.mjs
+#   docker compose -p mcp-e2e -f scripts/e2e/docker-compose.yml down -v
+#
+# E2E_CONFIG_DIR overrides where the image writes its generated
+# LocalSettings.php / InstanceSettings.php (root-owned), so local runs can
+# keep those files out of the checkout; CI leaves the default ./config.
+
+services:
+  wikibase:
+    image: wikibase/wikibase:mw1.46.0
+    ports:
+      - '127.0.0.1:8082:80'
+    environment:
+      MW_ADMIN_NAME: MCPCIAdmin
+      MW_ADMIN_PASS: mcp-ci-admin-pass-2026
+      MW_ADMIN_EMAIL: mcp-ci@example.org
+      MW_SITE_LANG: en
+      MW_WG_SERVER: http://wikibase
+      DB_SERVER: mysql:3306
+      DB_USER: wikiuser
+      DB_PASS: sqlpass
+      DB_NAME: my_wiki
+    volumes:
+      - ${E2E_CONFIG_DIR:-./config}:/config
+      # The WBS-generated LocalSettings.php requires /config/Extensions.php
+      # when present; this file allows the 'ronzz' sitelink group (see the
+      # file itself). Mounted read-only so it survives a fresh E2E_CONFIG_DIR.
+      - ./Extensions.php:/config/Extensions.php:ro
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      # api.php answers 200 only once the first-boot install has finished.
+      test: ['CMD', 'curl', '--silent', '--fail', 'localhost/w/api.php']
+      interval: 10s
+      timeout: 10s
+      retries: 36
+      start_period: 240s
+
+  wikibase-jobrunner:
+    image: wikibase/wikibase:mw1.46.0
+    command: jobrunner
+    volumes_from:
+      - wikibase
+    depends_on:
+      wikibase:
+        condition: service_healthy
+
+  mysql:
+    image: mariadb:10.11
+    environment:
+      MYSQL_DATABASE: my_wiki
+      MYSQL_USER: wikiuser
+      MYSQL_PASSWORD: sqlpass
+      MYSQL_RANDOM_ROOT_PASSWORD: 'yes'
+    volumes:
+      - db-data:/var/lib/mysql
+    healthcheck:
+      test: ['CMD', 'healthcheck.sh', '--connect', '--innodb_initialized']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+
+volumes:
+  db-data:

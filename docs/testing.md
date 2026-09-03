@@ -52,6 +52,38 @@ npm run test:watch # watch mode
 npm run typecheck  # tsc over src + tests
 ```
 
+## Live-wiki E2E (CI)
+
+The one integration test that exercises the built server against a real wiki.
+`scripts/e2e/run-e2e.mjs` boots the `scripts/e2e/docker-compose.yml` stack (a
+stock Wikibase Suite — MediaWiki 1.46 + Wikibase, no custom extensions), creates
+a bot password for its admin, starts `dist/index.js` over stdio through the MCP
+client SDK, and drives real `tools/call` round-trips: whoami, create-page →
+get-page, and the Wikibase pack (edit-entity item + property, get-entity,
+search-entities, add-statement, setsitelink). It also asserts that the
+EmbeddableContent / WikibaseCitation tools are **not** offered against a stock
+wiki (extension gating works).
+
+This is the CI `e2e` job, which runs it on every push to `master` and on pull
+requests — see AGENTS.md "Expensive end-to-end tests run in CI, not on a dev
+machine". To run it locally while developing the runner:
+
+```sh
+npm run build
+docker compose -p mcp-e2e -f scripts/e2e/docker-compose.yml up -d --wait
+node scripts/e2e/run-e2e.mjs
+docker compose -p mcp-e2e -f scripts/e2e/docker-compose.yml down -v
+```
+
+The stack's generated MediaWiki config lands in `scripts/e2e/config/`
+(gitignored, root-owned); point `E2E_CONFIG_DIR` at a directory outside the
+checkout (e.g. `/tmp/mcp-e2e-config`) to keep a local run's files out of the
+repo. The compose mounts `scripts/e2e/Extensions.php` so the Wikibase repo
+allows the `ronzz` sitelink group (the default allowlist is empty, which makes
+`wbsetsitelink` reject every site); the runner registers the wiki's own
+`wikibase` site row with `addSite.php` and restarts the container so the web
+workers' APCu cache of the sites table reloads.
+
 ## MCP Inspector (UI)
 
 Test and debug the MCP server interactively without an MCP client or LLM.

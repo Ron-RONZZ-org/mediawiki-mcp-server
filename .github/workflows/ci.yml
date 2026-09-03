@@ -41,20 +41,37 @@ jobs:
     - name: Doctor and protocol conformance
       run: npm run check:mcp
 
-    - name: Check out PR base
-      if: github.event_name == 'pull_request'
+    # This repo ships by pushing to master, so the breaking-change gate must
+    # run on push too, not only on pull requests: diff the built tool surface
+    # against the previous commit (the push event's `before` sha). The PR
+    # branch is its own base. A fresh-branch push has an all-zero `before`,
+    # for which there is nothing to diff against.
+    - name: Resolve the base commit for the tool-surface diff
+      id: base
+      env:
+        PR_BASE: ${{ github.event.pull_request.base.sha }}
+        PUSH_BEFORE: ${{ github.event.before }}
+      run: |
+        if [ -n "${PR_BASE}" ]; then
+          echo "sha=${PR_BASE}" >> "${GITHUB_OUTPUT}"
+        elif [ -n "${PUSH_BEFORE}" ] && [ "${PUSH_BEFORE}" != "0000000000000000000000000000000000000000" ]; then
+          echo "sha=${PUSH_BEFORE}" >> "${GITHUB_OUTPUT}"
+        fi
+
+    - name: Check out the base commit
+      if: steps.base.outputs.sha != ''
       uses: actions/checkout@v7
       with:
-        ref: ${{ github.event.pull_request.base.sha }}
+        ref: ${{ steps.base.outputs.sha }}
         path: base
 
-    - name: Build PR base
-      if: github.event_name == 'pull_request'
+    - name: Build the base commit
+      if: steps.base.outputs.sha != ''
       working-directory: base
       run: npm ci && npm run build
 
-    - name: Export base tool surface
-      if: github.event_name == 'pull_request'
+    - name: Export the base tool surface
+      if: steps.base.outputs.sha != ''
       run: >
         node_modules/.bin/mcpjam server export --stable
         --transport stdio --command node
@@ -63,8 +80,8 @@ jobs:
         --env "CONFIG=$GITHUB_WORKSPACE/scripts/mcp-checks.config.json"
         --no-telemetry --quiet > base-surface.json
 
-    - name: Diff tool surface against base
-      if: github.event_name == 'pull_request'
+    - name: Diff the tool surface against the base
+      if: steps.base.outputs.sha != ''
       run: >
         node_modules/.bin/mcpjam server diff --baseline base-surface.json
         --transport stdio --command node
@@ -72,3 +89,40 @@ jobs:
         --cwd "$GITHUB_WORKSPACE"
         --env "CONFIG=$GITHUB_WORKSPACE/scripts/mcp-checks.config.json"
         --fail-on breaking --no-telemetry
+
+  # Live-wiki E2E: boots a stock Wikibase stack (scripts/e2e/docker-compose.yml)
+  # and drives real tools/call round-trips through the built server
+  # (scripts/e2e/run-e2e.mjs). Expensive by design — it is what unit tests with
+  # a mocked mwn cannot see — and therefore runs here, not on a dev machine.
+  # The Wikibase docker images are amd64-only, so this job uses an x64 runner
+  # while preflight and mcp-checks stay on the cheaper arm runners.
+  e2e:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+    - uses: actions/checkout@v7
+
+    - uses: actions/setup-node@v7
+      with:
+        node-version: 24
+        cache: 'npm'
+
+    - run: npm ci
+
+    - run: npm run build
+
+    - name: Boot the live Wikibase stack
+      run: docker compose -p mcp-e2e -f scripts/e2e/docker-compose.yml up -d --wait
+      timeout-minutes: 15
+
+    - name: Run the live-wiki E2E
+      run: node scripts/e2e/run-e2e.mjs
+      timeout-minutes: 10
+
+    - name: Stack logs on failure
+      if: failure()
+      run: docker compose -p mcp-e2e -f scripts/e2e/docker-compose.yml logs --tail 150
+
+    - name: Tear down the stack
+      if: always()
+      run: docker compose -p mcp-e2e -f scripts/e2e/docker-compose.yml down -v --remove-orphans

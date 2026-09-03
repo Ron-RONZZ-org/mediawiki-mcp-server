@@ -115,6 +115,20 @@ See [docs/distribution.md](docs/distribution.md) for the install channels, the C
 
 Tool tests build a `ToolContext` via `fakeContext()` from `tests/helpers/fakeContext.ts` and dispatch through `dispatch( descriptor, ctx )`. Provide an `mwn` factory (typically `createMockMwn()` from `tests/helpers/mock-mwn.ts`) and override only the slices the test exercises. See [docs/testing.md](docs/testing.md) for the full pattern, MCP Inspector CLI examples, and the bot-password setup required to exercise authenticated tools against a local wiki.
 
+### Expensive end-to-end tests run in CI, not on a dev machine
+
+The live-wiki E2E (`scripts/e2e/run-e2e.mjs` driving the built server against
+the `scripts/e2e/docker-compose.yml` Wikibase stack) boots a full MediaWiki +
+Wikibase container stack and takes minutes and ~1.5 GiB of RAM. It runs as the
+CI `e2e` job on every push to `master` and on pull requests — that is its
+home. **Do not run it on a development machine** unless you are developing the
+runner itself; a local run competes for RAM with worktrees, node processes and
+browsers, and CI is the sanctioned place for expensive integration work. The
+laptop-friendly loops are the vitest unit suites (`npm test`), which mock the
+wiki, plus the pre-push hook's typecheck + tests. If you do boot the stack
+locally to debug the runner, tear it down afterwards with
+`docker compose -p mcp-e2e -f scripts/e2e/docker-compose.yml down -v`.
+
 ## Releasing
 
 See [docs/releasing.md](docs/releasing.md).
