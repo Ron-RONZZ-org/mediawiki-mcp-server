@@ -106,9 +106,9 @@ Each pack's tools register only on wikis where its extension is installed.
 | `wikibase-search-entities` | Find items and properties by label or alias (prefix, or substring via `mode=contains`). |
 | `wikibase-get-entity` | Read one entity's terms and statements, with referenced IDs resolved to labels. |
 | `wikibase-query` | Run a SPARQL query against the wiki's query service. Offered only for a repository whose siteinfo publishes one. |
-| `wikibase-edit-entity` | Create or change an entity from Wikibase entity JSON. Requires the `edit` right. |
-| `wikibase-add-statement` | Add one statement with an item, string, external-id or url value. Requires the `edit` right. |
-| `wikibase-setsitelink` | Link a wiki page to an item (page ↔ item sitelink). Requires the `edit` right. |
+| `wikibase-edit-entity` | Create or change an entity from Wikibase entity JSON. A lost response is verified against the wiki before you retry. Requires the `edit` right. |
+| `wikibase-add-statement` | Add one statement with an item, string, external-id or url value. A lost response is verified against the wiki before you retry. Requires the `edit` right. |
+| `wikibase-setsitelink` | Link a wiki page to an item (page ↔ item sitelink). A lost response is verified against the wiki before you retry. Requires the `edit` right. |
 
 **[EmbeddableContent](https://www.mediawiki.org/wiki/Extension:EmbeddableContent) (custom extension)**
 
@@ -116,9 +116,9 @@ The Add\* forms of the EmbeddableContent extension expose typed entity creation 
 
 | Name | Description |
 |---|---|
-| `embeddable-add-special-content` | Create or update a quotation, math or code-snippet item through the wiki's own service (`action=addspecialcontent`). Requires the `edit` right. |
-| `embeddable-add-citation-source` | Create or update a citable work item (book, article, website, …) through the wiki's own AddSource service (`action=addsource`), incl. the classic `Source:` page + sitelink. Requires the `edit` right. |
-| `embeddable-add-semantic-entity` | Create or update a person, software, collective, fictional-character or other-class item through the wiki's own service (`action=addsemanticentity`), incl. the classic `Person:`/`Collective:`/`FOSS:` page + sitelink. Requires the `edit` right. |
+| `embeddable-add-special-content` | Create or update a quotation, math or code-snippet item through the wiki's own service (`action=addspecialcontent`). A create the duplication guard flags returns the existing item it collides with (`confirmDuplicate` forces the create); a lost response is verified by label. Requires the `edit` right. |
+| `embeddable-add-citation-source` | Create or update a citable work item (book, article, website, …) through the wiki's own AddSource service (`action=addsource`), incl. the classic `Source:` page + sitelink. A create the duplication guard flags returns the existing item it collides with (`confirmDuplicate` forces the create); a lost response is verified by label. Requires the `edit` right. |
+| `embeddable-add-semantic-entity` | Create or update a person, software, collective, fictional-character or other-class item through the wiki's own service (`action=addsemanticentity`), incl. the classic `Person:`/`Collective:`/`FOSS:` page + sitelink. A create the duplication guard flags returns the existing item it collides with (`confirmDuplicate` forces the create); a lost response is verified by label. Requires the `edit` right. |
 | `embeddable-get-embed-content` | Render an EmbeddableContent item through the embed API (the Special:Embed renderer). |
 | `embeddable-describe-entity-type` | Return the field tables and resolved property IDs behind the add tools (citation-source served by the wiki's `action=addsource-fields`). |
 

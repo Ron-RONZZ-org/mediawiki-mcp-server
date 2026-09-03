@@ -62,6 +62,54 @@ describe('wikibase-setsitelink', () => {
 		assertStructuredError(result, 'upstream_failure');
 	});
 
+	it('verifies a landed sitelink when the write response is lost', async () => {
+		const mock = createMockMwn({
+			request: vi.fn().mockResolvedValue({
+				entities: {
+					Q42: {
+						id: 'Q42',
+						type: 'item',
+						lastrevid: 100,
+						sitelinks: { wikibase: { site: 'wikibase', title: 'Cheatsheets:Markdown' } },
+					},
+				},
+			}),
+		});
+		const submit = vi.fn().mockResolvedValue({ success: 1 });
+		const ctx = fakeContext({ mwn: async () => mock as never, edit: { ...baseEdit, submit } });
+
+		const result = await wikibaseSetSitelink.handle(
+			toolArgs(wikibaseSetSitelink, { qid: 'Q42', page: 'Cheatsheets:Markdown' }),
+			ctx,
+		);
+
+		expect(assertStructuredData(result)).toMatchObject({
+			entityId: 'Q42',
+			latestRevisionId: 100,
+			sitelinkSite: 'wikibase',
+			page: 'Cheatsheets:Markdown',
+		});
+	});
+
+	it('reports a lost sitelink write that did not land as retry-safe', async () => {
+		const mock = createMockMwn({
+			request: vi.fn().mockResolvedValue({
+				entities: { Q42: { id: 'Q42', type: 'item', lastrevid: 100, sitelinks: {} } },
+			}),
+		});
+		const submit = vi.fn().mockResolvedValue({ success: 1 });
+		const ctx = fakeContext({ mwn: async () => mock as never, edit: { ...baseEdit, submit } });
+
+		const result = await wikibaseSetSitelink.handle(
+			toolArgs(wikibaseSetSitelink, { qid: 'Q42', page: 'Cheatsheets:Markdown' }),
+			ctx,
+		);
+
+		const envelope = assertStructuredError(result, 'upstream_failure');
+		expect(envelope.message).toContain('was not set');
+		expect(envelope.message).toContain('retrying the call is safe');
+	});
+
 	it('attributes the edit to the tool that made it, after the caller comment', async () => {
 		const mock = createMockMwn({});
 		const submit = vi.fn().mockResolvedValue(LINKED);

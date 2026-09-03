@@ -152,6 +152,113 @@ describe('wikibase-edit-entity', () => {
 		assertStructuredError(result, 'upstream_failure');
 	});
 
+	it('verifies a landed create by label when the write response is lost', async () => {
+		const { mock, ctx } = contextWith(vi.fn().mockResolvedValue({ success: 1 }));
+		mock.request.mockResolvedValue({ search: [{ id: 'Q1234', label: 'Berlin' }] });
+
+		const result = await wikibaseEditEntity.handle(
+			toolArgs(wikibaseEditEntity, { data: LABEL_DATA }),
+			ctx,
+		);
+
+		expect(mock.request).toHaveBeenCalledWith(
+			expect.objectContaining({ action: 'wbsearchentities', search: 'Berlin', language: 'en' }),
+		);
+		expect(assertStructuredData(result)).toMatchObject({
+			outcome: 'likely-created',
+			entityId: 'Q1234',
+			label: 'Berlin',
+		});
+	});
+
+	it('never calls a lost create retry-safe when no matching label exists', async () => {
+		const { mock, ctx } = contextWith(vi.fn().mockResolvedValue({ success: 1 }));
+		mock.request.mockResolvedValue({ search: [] });
+
+		const result = await wikibaseEditEntity.handle(
+			toolArgs(wikibaseEditEntity, { data: LABEL_DATA }),
+			ctx,
+		);
+
+		const envelope = assertStructuredError(result, 'upstream_failure');
+		expect(envelope.message).toContain('no duplication guard');
+		expect(envelope.message).not.toContain('retrying the call is safe');
+	});
+
+	it('verifies a landed term-only update when the write response is lost', async () => {
+		const { mock, ctx } = contextWith(vi.fn().mockResolvedValue({ success: 1 }));
+		mock.request.mockResolvedValue({
+			entities: {
+				Q1234: {
+					id: 'Q1234',
+					type: 'item',
+					lastrevid: 988,
+					labels: { en: { language: 'en', value: 'Berlin' } },
+				},
+			},
+		});
+
+		const result = await wikibaseEditEntity.handle(
+			toolArgs(wikibaseEditEntity, { entityId: 'Q1234', data: LABEL_DATA }),
+			ctx,
+		);
+
+		expect(mock.request).toHaveBeenCalledWith(
+			expect.objectContaining({ action: 'wbgetentities', ids: 'Q1234' }),
+		);
+		expect(assertStructuredData(result)).toMatchObject({
+			entityId: 'Q1234',
+			latestRevisionId: 988,
+		});
+	});
+
+	it('reports a lost term-only update that did not land as retry-safe', async () => {
+		const { mock, ctx } = contextWith(vi.fn().mockResolvedValue({ success: 1 }));
+		mock.request.mockResolvedValue({
+			entities: {
+				Q1234: {
+					id: 'Q1234',
+					type: 'item',
+					labels: { en: { language: 'en', value: 'Paris' } },
+				},
+			},
+		});
+
+		const result = await wikibaseEditEntity.handle(
+			toolArgs(wikibaseEditEntity, { entityId: 'Q1234', data: LABEL_DATA }),
+			ctx,
+		);
+
+		const envelope = assertStructuredError(result, 'upstream_failure');
+		expect(envelope.message).toContain('did not land');
+		expect(envelope.message).toContain('retrying the call is safe');
+	});
+
+	it('guides a lost claims-bearing update to verify before re-running', async () => {
+		const { mock, ctx } = contextWith(vi.fn().mockResolvedValue({ success: 1 }));
+
+		const result = await wikibaseEditEntity.handle(
+			toolArgs(wikibaseEditEntity, { entityId: 'Q1234', data: CLAIM_DATA }),
+			ctx,
+		);
+
+		const envelope = assertStructuredError(result, 'upstream_failure');
+		expect(envelope.message).toContain('GUID-less');
+		expect(mock.request).not.toHaveBeenCalled();
+	});
+
+	it('says a lost clear=true update is safe to re-run', async () => {
+		const { ctx } = contextWith(vi.fn().mockResolvedValue({ success: 1 }));
+
+		const result = await wikibaseEditEntity.handle(
+			toolArgs(wikibaseEditEntity, { entityId: 'Q1234', data: LABEL_DATA, clear: true }),
+			ctx,
+		);
+
+		const envelope = assertStructuredError(result, 'upstream_failure');
+		expect(envelope.message).toContain('clear=true');
+	});
+
 	it('surfaces a rejected CSRF token as an authentication error', async () => {
 		const error = Object.assign(new Error('Invalid CSRF token.'), { code: 'badtoken' });
 		const { ctx } = contextWith(vi.fn().mockRejectedValue(error));

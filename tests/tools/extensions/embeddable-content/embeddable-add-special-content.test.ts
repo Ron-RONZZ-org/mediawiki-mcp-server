@@ -155,7 +155,94 @@ describe('embeddable-add-special-content', () => {
 		expect(submit.mock.calls[0][1]).toMatchObject({ summary: 'adding the quote' });
 	});
 
-	it('reports an empty wiki answer as an upstream failure', async () => {
+	it('reports a duplication-guard refusal as a not-created result naming the duplicate', async () => {
+		const { ctx } = contextWith({
+			content: {
+				duplicate: '1',
+				duplicateOf: 'Q777',
+				duplicateLabel: 'Ada was first',
+				match: 'label',
+			},
+		});
+
+		const result = await embeddableAddSpecialContent.handle(
+			toolArgs(embeddableAddSpecialContent, {
+				kind: 'quotation',
+				label: 'Ada was first',
+				content: 'Ada was first.',
+				attributedTo: 'Q6',
+			}),
+			ctx,
+		);
+
+		expect(assertStructuredData(result)).toMatchObject({
+			notCreated: 'duplicate',
+			duplicateOf: 'Q777',
+			duplicateLabel: 'Ada was first',
+			match: 'label',
+		});
+	});
+
+	it('forwards confirmDuplicate to force a create past the guard', async () => {
+		const { ctx, submit } = contextWith();
+
+		await embeddableAddSpecialContent.handle(
+			toolArgs(embeddableAddSpecialContent, {
+				kind: 'quotation',
+				label: 'x',
+				content: 'y',
+				attributedTo: 'Q6',
+				confirmDuplicate: true,
+			}),
+			ctx,
+		);
+
+		expect(submit.mock.calls[0][1]).toMatchObject({ confirmDuplicate: '1' });
+	});
+
+	it('checks the term store when a create response is lost and the item exists', async () => {
+		const { ctx } = contextWith({}, () => ({
+			search: [{ id: 'Q777', label: 'x' }],
+		}));
+
+		const result = await embeddableAddSpecialContent.handle(
+			toolArgs(embeddableAddSpecialContent, {
+				kind: 'quotation',
+				label: 'x',
+				content: 'y',
+				attributedTo: 'Q6',
+			}),
+			ctx,
+		);
+
+		expect(assertStructuredData(result)).toMatchObject({
+			outcome: 'likely-created',
+			entityId: 'Q777',
+		});
+	});
+
+	it('searches the term store in the label language of the create', async () => {
+		const { ctx, mock } = contextWith({}, () => ({
+			search: [{ id: 'Q777', label: 'x' }],
+		}));
+
+		await embeddableAddSpecialContent.handle(
+			toolArgs(embeddableAddSpecialContent, {
+				kind: 'quotation',
+				label: 'x',
+				content: 'y',
+				attributedTo: 'Q6',
+				labelLanguage: 'fr',
+			}),
+			ctx,
+		);
+
+		expect(mock.request).toHaveBeenCalledWith(
+			expect.objectContaining({ action: 'wbsearchentities', search: 'x', language: 'fr' }),
+		);
+	});
+
+	it('reports a lost create response as retry-safe when no matching item exists', async () => {
 		const { ctx } = contextWith({});
 
 		const result = await embeddableAddSpecialContent.handle(
@@ -169,7 +256,25 @@ describe('embeddable-add-special-content', () => {
 		);
 
 		const envelope = assertStructuredError(result, 'upstream_failure');
-		expect(envelope.message).toContain('returned no content result');
+		expect(envelope.message).toContain('was not created');
+		expect(envelope.message).toContain('retrying the call is safe');
+	});
+
+	it('reports a lost update response as safe to re-run, without a search', async () => {
+		const { ctx, mock } = contextWith({});
+
+		const result = await embeddableAddSpecialContent.handle(
+			toolArgs(embeddableAddSpecialContent, {
+				kind: 'quotation',
+				qid: 'q777',
+				content: 'New words.',
+			}),
+			ctx,
+		);
+
+		const envelope = assertStructuredError(result, 'upstream_failure');
+		expect(envelope.message).toContain('update of Q777');
+		expect(mock.request).not.toHaveBeenCalled();
 	});
 
 	it('surfaces wiki-side rejections as errors via the dispatcher', async () => {

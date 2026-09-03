@@ -107,7 +107,69 @@ describe('embeddable-add-semantic-entity', () => {
 		expect(assertStructuredData(result)).toMatchObject({ entityId: 'Q777', updated: true });
 	});
 
-	it('reports an empty wiki answer as an upstream failure', async () => {
+	it('reports a duplication-guard refusal as a not-created result naming the duplicate', async () => {
+		const { ctx } = contextWith({
+			semantic: {
+				duplicate: '1',
+				duplicateOf: 'Q777',
+				duplicateLabel: 'Ada Lovelace',
+				match: 'label',
+			},
+		});
+
+		const result = await embeddableAddSemanticEntity.handle(
+			toolArgs(embeddableAddSemanticEntity, {
+				kind: 'person',
+				givenName: 'Ada',
+				familyName: 'Lovelace',
+			}),
+			ctx,
+		);
+
+		expect(assertStructuredData(result)).toMatchObject({
+			notCreated: 'duplicate',
+			duplicateOf: 'Q777',
+			duplicateLabel: 'Ada Lovelace',
+			match: 'label',
+		});
+	});
+
+	it('forwards confirmDuplicate to force a create past the guard', async () => {
+		const { ctx, submit } = contextWith();
+
+		await embeddableAddSemanticEntity.handle(
+			toolArgs(embeddableAddSemanticEntity, {
+				kind: 'software',
+				label: 'Flameshot',
+				confirmDuplicate: true,
+			}),
+			ctx,
+		);
+
+		expect(submit.mock.calls[0][1]).toMatchObject({ confirmDuplicate: '1' });
+	});
+
+	it('checks the term store when a create response is lost and the item exists', async () => {
+		const { ctx } = contextWith({}, () => ({
+			search: [{ id: 'Q777', label: 'Ada Lovelace' }],
+		}));
+
+		const result = await embeddableAddSemanticEntity.handle(
+			toolArgs(embeddableAddSemanticEntity, {
+				kind: 'person',
+				givenName: 'Ada',
+				familyName: 'Lovelace',
+			}),
+			ctx,
+		);
+
+		expect(assertStructuredData(result)).toMatchObject({
+			outcome: 'likely-created',
+			entityId: 'Q777',
+		});
+	});
+
+	it('reports a lost create response as retry-safe when no matching item exists', async () => {
 		const { ctx } = contextWith({});
 
 		const result = await embeddableAddSemanticEntity.handle(
@@ -116,7 +178,25 @@ describe('embeddable-add-semantic-entity', () => {
 		);
 
 		const envelope = assertStructuredError(result, 'upstream_failure');
-		expect(envelope.message).toContain('returned no semantic result');
+		expect(envelope.message).toContain('was not created');
+		expect(envelope.message).toContain('retrying the call is safe');
+	});
+
+	it('reports a lost update response as safe to re-run, without a search', async () => {
+		const { ctx, mock } = contextWith({});
+
+		const result = await embeddableAddSemanticEntity.handle(
+			toolArgs(embeddableAddSemanticEntity, {
+				kind: 'person',
+				qid: 'q777',
+				orcid: '0000-0002',
+			}),
+			ctx,
+		);
+
+		const envelope = assertStructuredError(result, 'upstream_failure');
+		expect(envelope.message).toContain('update of Q777');
+		expect(mock.request).not.toHaveBeenCalled();
 	});
 
 	it('surfaces wiki-side rejections as errors via the dispatcher', async () => {

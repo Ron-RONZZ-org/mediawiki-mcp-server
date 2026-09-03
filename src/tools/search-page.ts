@@ -20,7 +20,7 @@ const inputSchema = {
 export const searchPage: Tool<typeof inputSchema> = {
 	name: 'search-page',
 	description:
-		'Searches wiki page titles and page content (full-text) for the provided terms. Returns matching pages with a snippet, size, and timestamp. Accepts up to 100 matches per call (default 10); additional matches beyond the cap are flagged in the response — narrow the query to surface more. For title-prefix lookup (e.g. autocomplete), use search-page-by-prefix.',
+		"Searches wiki page titles and page content (full-text) for the provided terms. Returns matching pages with a snippet, size, and timestamp. Accepts up to 100 matches per call (default 10); additional matches beyond the cap are flagged in the response — narrow the query to surface more. For title-prefix lookup (e.g. autocomplete), use search-page-by-prefix. On a Wikibase repository this search covers wiki-page text: when the wiki's search backend does not index entity terms, a term that exists only as an item or property label returns no page matches. Find entities by label or alias with wikibase-search-entities, read one with wikibase-get-entity, and select entities by their statements with wikibase-query.",
 	inputSchema,
 	annotations: {
 		title: 'Search page',

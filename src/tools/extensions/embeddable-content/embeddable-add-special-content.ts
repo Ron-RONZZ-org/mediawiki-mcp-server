@@ -4,6 +4,11 @@ import type { Tool } from '../../../runtime/tool.ts';
 import type { ToolContext } from '../../../runtime/context.ts';
 import { SPECIAL_CONTENT_KINDS } from './embeddableSchema.ts';
 import { DAY_DATE, ITEM_ID, LANGUAGE_CODE, resolveItemIdOrLabel } from './embeddableWrite.ts';
+import {
+	duplicateHitOf,
+	duplicateHitResult,
+	unresolvedWriteResult,
+} from './embeddableAddOutcome.ts';
 
 const KINDS = SPECIAL_CONTENT_KINDS;
 
@@ -87,13 +92,19 @@ const inputSchema = {
 		.describe(
 			'Set to update an existing item instead of creating one. Managed statements (payload, provenance, subject fields) are replaced for fields provided here; blank fields keep the existing statements, and the class is never changed.',
 		),
+	confirmDuplicate: z
+		.boolean()
+		.optional()
+		.describe(
+			"Set true to create the item anyway when the wiki's duplication guard flags an existing item (the same authority id or URL, or a highly similar class-filtered label) as a duplicate of the record. The create is otherwise refused and the existing item returned instead. Forces the create; can produce a second item for the same content.",
+		),
 	comment: z.string().optional().describe('Edit summary, appended to the generated one.'),
 } as const;
 
 export const embeddableAddSpecialContent: Tool<typeof inputSchema> = {
 	name: 'embeddable-add-special-content',
 	description:
-		"Creates or updates a quotation, mathematical expression or code-snippet item on a wiki with the EmbeddableContent extension, mirroring the Special:AddQuotation / AddMath / AddCodeSnippet forms, and returns the item ID and latest revision. Requires the edit right.\n\nThe item is created by the wiki's own special-content service (action=addspecialcontent): classified instance of the kind's class, payload handled exactly like the forms (math delimiters stripped, multi-line content backslash-escaped and decoded at render time), plus the provenance block you supply: attributedTo, source, sourceUrl and date. A quotation's content is stored as monolingual text in language, and attributedTo is required when creating one. Content items carry no description field and create no classic page. To find existing entities — including the attributedTo person or source item — use wikibase-search-entities first.\n\nSet qid to update an existing item instead: statements on the fields you provide are replaced, blank fields keep the existing statements, and the class is never changed. For the field table, property IDs and a ready-to-submit example, call embeddable-describe-entity-type first.",
+		"Creates or updates a quotation, mathematical expression or code-snippet item on a wiki with the EmbeddableContent extension, mirroring the Special:AddQuotation / AddMath / AddCodeSnippet forms, and returns the item ID and latest revision. Requires the edit right.\n\nThe item is created by the wiki's own special-content service (action=addspecialcontent): classified instance of the kind's class, payload handled exactly like the forms (math delimiters stripped, multi-line content backslash-escaped and decoded at render time), plus the provenance block you supply: attributedTo, source, sourceUrl and date. A quotation's content is stored as monolingual text in language, and attributedTo is required when creating one. Content items carry no description field and create no classic page. A create that matches an existing item (the same authority id or URL, or a highly similar class-filtered label) is refused by the wiki's duplication guard, which returns the existing item instead of creating — update that item instead, or set confirmDuplicate to force the create. When the wiki's response is lost and no item comes back, the tool checks whether an item with the submitted label exists and reports the outcome before you retry. To find existing entities — including the attributedTo person or source item — use wikibase-search-entities first.\n\nSet qid to update an existing item instead: statements on the fields you provide are replaced, blank fields keep the existing statements, and the class is never changed. For the field table, property IDs and a ready-to-submit example, call embeddable-describe-entity-type first.",
 	inputSchema,
 	annotations: {
 		title: 'Add special content',
@@ -146,6 +157,9 @@ export const embeddableAddSpecialContent: Tool<typeof inputSchema> = {
 		if (args.qid !== undefined) {
 			params.qid = args.qid.toUpperCase();
 		}
+		if (args.confirmDuplicate === true) {
+			params.confirmDuplicate = '1';
+		}
 		if (args.comment !== undefined && args.comment !== '') {
 			params.summary = args.comment;
 		}
@@ -158,15 +172,29 @@ export const embeddableAddSpecialContent: Tool<typeof inputSchema> = {
 				latestRevisionId?: number;
 				created?: boolean | string;
 				updated?: boolean | string;
+				duplicate?: boolean | string;
+				duplicateOf?: string;
+				duplicateLabel?: string;
+				match?: string;
 			};
 		};
 
 		const content = response?.content;
 		if (content?.entityId === undefined) {
-			return ctx.format.error(
-				'upstream_failure',
-				'The wiki accepted the request but returned no content result.',
-			);
+			// The wiki answered without creating: a duplication-guard refusal
+			// names the existing item; anything else is a lost response whose
+			// outcome is checked before the caller is told to retry.
+			const duplicate = duplicateHitOf(content);
+			if (duplicate !== undefined) {
+				return duplicateHitResult(ctx, duplicate);
+			}
+			return unresolvedWriteResult(ctx, {
+				noun: 'content item',
+				mode: args.qid === undefined ? 'create' : 'update',
+				label: args.label,
+				qid: args.qid?.toUpperCase(),
+				labelLanguage: args.labelLanguage,
+			});
 		}
 		return ctx.format.ok({
 			entityId: content.entityId,

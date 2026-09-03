@@ -3,6 +3,7 @@ import type { CallToolResult } from '@modelcontextprotocol/server';
 import type { Tool } from '../../../runtime/tool.ts';
 import type { ToolContext } from '../../../runtime/context.ts';
 import { formatEditComment } from '../../../wikis/utils.ts';
+import { lostEditEntityCreateResult, lostEditEntityUpdateResult } from './wikibaseWriteOutcome.ts';
 
 const inputSchema = {
 	entityId: z
@@ -41,7 +42,7 @@ interface EditEntityResponse {
 export const wikibaseEditEntity: Tool<typeof inputSchema> = {
 	name: 'wikibase-edit-entity',
 	description:
-		'Creates or changes a Wikibase entity from a JSON description of the change, and returns the entity ID and new revision ID. Enabled only when the wiki is a Wikibase repository. Omit entityId to create a new item or property, or name an item, property or lexeme to edit it. Requires the edit right.\n\ndata is merged into the entity: terms and statements it does not mention are left alone, and a term given for a language replaces that language\'s term. clear=true empties the entity first, so anything absent from data is deleted.\n\nExample data, setting an English label and adding one statement:\n{"labels":{"en":{"language":"en","value":"Berlin"}},"claims":[{"mainsnak":{"snaktype":"value","property":"P31","datavalue":{"type":"wikibase-entityid","value":{"entity-type":"item","id":"Q515"}}},"type":"statement","rank":"normal"}]}\n\nCreating a property requires datatype in data, which is fixed once the property exists, and sitelinks apply to items only. A lexeme names its terms lemmas rather than labels, so its data uses that key. A statement\'s datavalue shape follows its property\'s datatype (read it with wikibase-get-entity on the property). For a single statement with an item, string, external-id or url value, wikibase-add-statement builds the JSON instead.',
+		'Creates or changes a Wikibase entity from a JSON description of the change, and returns the entity ID and new revision ID. Enabled only when the wiki is a Wikibase repository. Omit entityId to create a new item or property, or name an item, property or lexeme to edit it. Requires the edit right.\n\ndata is merged into the entity: terms and statements it does not mention are left alone, and a term given for a language replaces that language\'s term. clear=true empties the entity first, so anything absent from data is deleted. When the wiki\'s response is lost and no entity comes back, the tool re-reads the wiki — the current terms of a term-only update, or a term-store search for a create — and reports whether the write landed before you retry.\n\nExample data, setting an English label and adding one statement:\n{"labels":{"en":{"language":"en","value":"Berlin"}},"claims":[{"mainsnak":{"snaktype":"value","property":"P31","datavalue":{"type":"wikibase-entityid","value":{"entity-type":"item","id":"Q515"}}},"type":"statement","rank":"normal"}]}\n\nCreating a property requires datatype in data, which is fixed once the property exists, and sitelinks apply to items only. A lexeme names its terms lemmas rather than labels, so its data uses that key. A statement\'s datavalue shape follows its property\'s datatype (read it with wikibase-get-entity on the property). For a single statement with an item, string, external-id or url value, wikibase-add-statement builds the JSON instead.',
 	inputSchema,
 	annotations: {
 		title: 'Edit Wikibase entity',
@@ -59,9 +60,10 @@ export const wikibaseEditEntity: Tool<typeof inputSchema> = {
 	): Promise<CallToolResult> {
 		const mwn = await ctx.mwn();
 		const summary = formatEditComment(ctx, 'wikibase-edit-entity', comment);
+		const creating = entityId === undefined;
 		const params: Record<string, string | number | boolean> = {
 			action: 'wbeditentity',
-			...(entityId !== undefined ? { id: entityId.toUpperCase() } : { new: entityType }),
+			...(creating ? { new: entityType } : { id: entityId.toUpperCase() }),
 			data: JSON.stringify(data),
 			...(clear === true ? { clear: true } : {}),
 			...(summary !== undefined ? { summary } : {}),
@@ -71,10 +73,22 @@ export const wikibaseEditEntity: Tool<typeof inputSchema> = {
 		const response = (await ctx.edit.submit(mwn, params)) as EditEntityResponse | undefined;
 		const entity = response?.entity;
 		if (entity?.id === undefined) {
-			return ctx.format.error(
-				'upstream_failure',
-				`The wiki accepted the request but returned no entity: ${JSON.stringify(response)}`,
-			);
+			// Lost response: re-read the wiki and report whether the write
+			// landed instead of guessing.
+			if (creating) {
+				return lostEditEntityCreateResult(ctx, {
+					entityType,
+					labels: termMapOf(data.labels),
+				});
+			}
+			return lostEditEntityUpdateResult(ctx, {
+				qid: entityId.toUpperCase(),
+				clear: clear === true,
+				labels: termMapOf(data.labels),
+				descriptions: termMapOf(data.descriptions),
+				hasClaims: isNonEmptyArray(data.claims),
+				hasSitelinks: isNonEmptyObject(data.sitelinks),
+			});
 		}
 
 		return ctx.format.ok({
@@ -84,3 +98,36 @@ export const wikibaseEditEntity: Tool<typeof inputSchema> = {
 		});
 	},
 };
+
+/** A term map as wbeditentity data carries it: { en: { language, value } }. */
+function termMapOf(section: unknown): Record<string, { value: string }> | undefined {
+	if (typeof section !== 'object' || section === null || Array.isArray(section)) {
+		return undefined;
+	}
+	const map: Record<string, { value: string }> = {};
+	for (const [language, term] of Object.entries(section)) {
+		if (
+			typeof term === 'object' &&
+			term !== null &&
+			!Array.isArray(term) &&
+			'value' in term &&
+			typeof term.value === 'string'
+		) {
+			map[language] = { value: term.value };
+		}
+	}
+	return Object.keys(map).length > 0 ? map : undefined;
+}
+
+function isNonEmptyArray(value: unknown): boolean {
+	return Array.isArray(value) && value.length > 0;
+}
+
+function isNonEmptyObject(value: unknown): boolean {
+	return (
+		typeof value === 'object' &&
+		value !== null &&
+		!Array.isArray(value) &&
+		Object.keys(value).length > 0
+	);
+}

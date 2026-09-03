@@ -168,6 +168,116 @@ describe('wikibase-add-statement', () => {
 		assertStructuredError(result, 'upstream_failure');
 	});
 
+	it('verifies a landed statement when the write response is lost', async () => {
+		const request = vi
+			.fn()
+			.mockResolvedValueOnce({
+				entities: { P31: { id: 'P31', type: 'property', datatype: 'string' } },
+			})
+			.mockResolvedValueOnce({
+				entities: {
+					Q42: {
+						id: 'Q42',
+						type: 'item',
+						lastrevid: 600,
+						claims: {
+							P31: [
+								{
+									id: 'Q42$abc',
+									type: 'statement',
+									mainsnak: {
+										snaktype: 'value',
+										property: 'P31',
+										datavalue: { type: 'string', value: 'hello' },
+									},
+								},
+							],
+						},
+					},
+				},
+			});
+		const mock = createMockMwn({ request });
+		const submit = vi.fn().mockResolvedValue({ success: 1 });
+		const ctx = fakeContext({ mwn: async () => mock as never, edit: { ...baseEdit, submit } });
+
+		const result = await wikibaseAddStatement.handle(
+			toolArgs(wikibaseAddStatement, { entityId: 'Q42', propertyId: 'P31', value: 'hello' }),
+			ctx,
+		);
+
+		expect(assertStructuredData(result)).toMatchObject({
+			entityId: 'Q42',
+			propertyId: 'P31',
+			statementId: 'Q42$abc',
+			latestRevisionId: 600,
+		});
+	});
+
+	it('matches an item-typed claim by entity id when the response is lost', async () => {
+		const request = vi
+			.fn()
+			.mockResolvedValueOnce({
+				entities: { P31: { id: 'P31', type: 'property', datatype: 'wikibase-item' } },
+			})
+			.mockResolvedValueOnce({
+				entities: {
+					Q42: {
+						id: 'Q42',
+						type: 'item',
+						claims: {
+							P31: [
+								{
+									id: 'Q42$xyz',
+									type: 'statement',
+									mainsnak: {
+										snaktype: 'value',
+										property: 'P31',
+										datavalue: {
+											type: 'wikibase-entityid',
+											value: { 'entity-type': 'item', 'numeric-id': 5, id: 'Q5' },
+										},
+									},
+								},
+							],
+						},
+					},
+				},
+			});
+		const mock = createMockMwn({ request });
+		const submit = vi.fn().mockResolvedValue({ success: 1 });
+		const ctx = fakeContext({ mwn: async () => mock as never, edit: { ...baseEdit, submit } });
+
+		const result = await wikibaseAddStatement.handle(
+			toolArgs(wikibaseAddStatement, { entityId: 'Q42', propertyId: 'P31', value: 'q5' }),
+			ctx,
+		);
+
+		expect(assertStructuredData(result)).toMatchObject({ statementId: 'Q42$xyz' });
+	});
+
+	it('reports a lost statement write that did not land as retry-safe', async () => {
+		const request = vi
+			.fn()
+			.mockResolvedValueOnce({
+				entities: { P31: { id: 'P31', type: 'property', datatype: 'string' } },
+			})
+			.mockResolvedValueOnce({
+				entities: { Q42: { id: 'Q42', type: 'item', claims: { P31: [] } } },
+			});
+		const mock = createMockMwn({ request });
+		const submit = vi.fn().mockResolvedValue({ success: 1 });
+		const ctx = fakeContext({ mwn: async () => mock as never, edit: { ...baseEdit, submit } });
+
+		const result = await wikibaseAddStatement.handle(
+			toolArgs(wikibaseAddStatement, { entityId: 'Q42', propertyId: 'P31', value: 'hello' }),
+			ctx,
+		);
+
+		const envelope = assertStructuredError(result, 'upstream_failure');
+		expect(envelope.message).toContain('was not added');
+		expect(envelope.message).toContain('retrying the call is safe');
+	});
+
 	it('refuses a property ID where an item ID belongs', async () => {
 		const { ctx, submit } = contextWith('wikibase-item');
 

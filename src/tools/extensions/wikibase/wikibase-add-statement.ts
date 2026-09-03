@@ -3,6 +3,7 @@ import type { CallToolResult } from '@modelcontextprotocol/server';
 import type { Tool } from '../../../runtime/tool.ts';
 import type { ToolContext } from '../../../runtime/context.ts';
 import { formatEditComment } from '../../../wikis/utils.ts';
+import { lostAddStatementResult } from './wikibaseWriteOutcome.ts';
 
 // Datatypes whose value this tool can build from a plain string. Everything
 // else (time, quantity, coordinates, monolingual text) needs a structured
@@ -42,7 +43,7 @@ interface CreateClaimResponse {
 export const wikibaseAddStatement: Tool<typeof inputSchema> = {
 	name: 'wikibase-add-statement',
 	description:
-		"Adds one statement to a Wikibase item, property or lexeme and returns the new statement ID. Enabled only when the wiki is a Wikibase repository. Requires the edit right.\n\nThe value is given as text and interpreted by the property's datatype, which is read from the wiki first: an item ID such as Q515 for a wikibase-item property, and the literal text for a string, external-id or url property. A property of any other datatype is rejected, naming it; those statements go through wikibase-edit-entity, which takes the full statement JSON and also writes qualifiers, references and several statements at once.\n\nExisting statements are left in place, so calling twice with the same value leaves the entity holding it twice.",
+		"Adds one statement to a Wikibase item, property or lexeme and returns the new statement ID. Enabled only when the wiki is a Wikibase repository. Requires the edit right.\n\nThe value is given as text and interpreted by the property's datatype, which is read from the wiki first: an item ID such as Q515 for a wikibase-item property, and the literal text for a string, external-id or url property. A property of any other datatype is rejected, naming it; those statements go through wikibase-edit-entity, which takes the full statement JSON and also writes qualifiers, references and several statements at once.\n\nExisting statements are left in place, so calling twice with the same value leaves the entity holding it twice. When the wiki's response is lost and no statement comes back, the tool re-reads the entity's claims for the property and reports whether the statement was added before you retry.",
 	inputSchema,
 	annotations: {
 		title: 'Add Wikibase statement',
@@ -105,10 +106,9 @@ export const wikibaseAddStatement: Tool<typeof inputSchema> = {
 
 		const statementId = response?.claim?.id;
 		if (statementId === undefined) {
-			return ctx.format.error(
-				'upstream_failure',
-				`The wiki accepted the request but returned no statement: ${JSON.stringify(response)}`,
-			);
+			// Lost response: re-read the entity's claims for the property and
+			// report whether the statement landed instead of guessing.
+			return lostAddStatementResult(ctx, { entity, property, datatype, value });
 		}
 
 		return ctx.format.ok({

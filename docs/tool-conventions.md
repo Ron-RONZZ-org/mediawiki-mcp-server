@@ -256,6 +256,7 @@ When writing or updating a tool in these pairs, each side's description should e
 - **`compare-pages` vs. client-side diff** — `compare-pages` computes the diff server-side and returns a compact text diff; prefer it over fetching both sources and diffing locally.
 - **`upload-file` vs `update-file`** — create a new file (rejects if the title already exists) vs. upload a new revision of an existing file (rejects if the title does not exist).
 - **`upload-file-from-url` vs `update-file-from-url`** — same pairing for URL-source uploads.
+- **`search-page` vs the Wikibase search tools** — full-text over wiki pages vs. entity label/alias lookups. On a repository whose search backend does not index entity terms, content that lives only in an item or property is reachable through `wikibase-search-entities` (label/alias, prefix or contains), read with `wikibase-get-entity`, or selected by statements with `wikibase-query` — not through `search-page`.
 
 #### Extension-pack tool descriptions
 

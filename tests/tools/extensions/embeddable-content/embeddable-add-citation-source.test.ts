@@ -2,7 +2,11 @@ import { describe, it, expect, vi } from 'vitest';
 import { createMockMwn } from '../../../helpers/mock-mwn.ts';
 import { fakeContext } from '../../../helpers/fakeContext.ts';
 import { toolArgs } from '../../../helpers/toolArgs.ts';
-import { assertStructuredData, assertStructuredError } from '../../../helpers/structuredResult.ts';
+import {
+	assertStructuredData,
+	assertStructuredError,
+	assertStructuredSuccess,
+} from '../../../helpers/structuredResult.ts';
 import { embeddableAddCitationSource } from '../../../../src/tools/extensions/embeddable-content/embeddable-add-citation-source.ts';
 import { dispatch } from '../../../../src/runtime/dispatcher.ts';
 
@@ -20,14 +24,17 @@ const UPDATED = {
 	source: { entityId: 'Q777', entityType: 'item', latestRevisionId: 13, updated: true },
 };
 
-function contextWith(result: unknown) {
+// fakeContext's edit slice throws on any method a test leaves unstubbed.
+const baseEdit = fakeContext().edit;
+
+function contextWith(result: unknown = CREATED, request?: (p: unknown) => unknown) {
 	const submit = vi.fn().mockResolvedValue(result);
-	const mock = createMockMwn({ request: vi.fn() });
+	const mock = createMockMwn({ request: vi.fn(request ?? (() => ({}))) });
 	const ctx = fakeContext({
 		mwn: async () => mock as never,
-		edit: { ...fakeContext().edit, submit },
+		edit: { ...baseEdit, submit },
 	});
-	return { ctx, submit };
+	return { mock, ctx, submit };
 }
 
 describe('embeddable-add-citation-source', () => {
@@ -136,16 +143,102 @@ describe('embeddable-add-citation-source', () => {
 		expect(assertStructuredData(result)).toMatchObject({ entityId: 'Q777', created: true });
 	});
 
-	it('reports an empty wiki answer as an upstream failure', async () => {
+	it('reports a duplication-guard refusal as a not-created result naming the duplicate', async () => {
+		const { ctx } = contextWith({
+			source: {
+				duplicate: '1',
+				duplicateOf: 'Q777',
+				duplicateLabel: 'The Hobbit (Book)',
+				match: 'label',
+			},
+		});
+
+		const result = await embeddableAddCitationSource.handle(
+			toolArgs(embeddableAddCitationSource, {
+				classKey: 'book',
+				title: 'The Hobbit',
+				authors: 'Q6',
+			}),
+			ctx,
+		);
+
+		expect(assertStructuredData(result)).toMatchObject({
+			notCreated: 'duplicate',
+			duplicateOf: 'Q777',
+			duplicateLabel: 'The Hobbit (Book)',
+			match: 'label',
+		});
+		expect(assertStructuredSuccess(result)).toContain('Not created: duplicate');
+	});
+
+	it('forwards confirmDuplicate to force a create past the guard', async () => {
+		const { ctx, submit } = contextWith();
+
+		await embeddableAddCitationSource.handle(
+			toolArgs(embeddableAddCitationSource, {
+				classKey: 'book',
+				title: 'The Hobbit',
+				authors: 'Q6',
+				confirmDuplicate: true,
+			}),
+			ctx,
+		);
+
+		expect(submit.mock.calls[0][1]).toMatchObject({ confirmDuplicate: '1' });
+	});
+
+	it('checks the term store when a create response is lost and the item exists', async () => {
+		const { ctx } = contextWith({}, () => ({
+			search: [{ id: 'Q777', label: 'The Hobbit (Book)' }],
+		}));
+
+		const result = await embeddableAddCitationSource.handle(
+			toolArgs(embeddableAddCitationSource, {
+				classKey: 'book',
+				title: 'The Hobbit',
+				authors: 'Q6',
+			}),
+			ctx,
+		);
+
+		expect(assertStructuredData(result)).toMatchObject({
+			outcome: 'likely-created',
+			entityId: 'Q777',
+		});
+	});
+
+	it('reports a lost create response as retry-safe when no matching item exists', async () => {
 		const { ctx } = contextWith({});
 
 		const result = await embeddableAddCitationSource.handle(
-			toolArgs(embeddableAddCitationSource, { classKey: 'book', title: 'X', authors: 'Q6' }),
+			toolArgs(embeddableAddCitationSource, {
+				classKey: 'book',
+				title: 'The Hobbit',
+				authors: 'Q6',
+			}),
 			ctx,
 		);
 
 		const envelope = assertStructuredError(result, 'upstream_failure');
-		expect(envelope.message).toContain('returned no source result');
+		expect(envelope.message).toContain('was not created');
+		expect(envelope.message).toContain('retrying the call is safe');
+	});
+
+	it('reports a lost update response as safe to re-run, without a search', async () => {
+		const { ctx, mock } = contextWith({});
+
+		const result = await embeddableAddCitationSource.handle(
+			toolArgs(embeddableAddCitationSource, {
+				classKey: 'book',
+				qid: 'q777',
+				isbn: '9780547928227',
+			}),
+			ctx,
+		);
+
+		const envelope = assertStructuredError(result, 'upstream_failure');
+		expect(envelope.message).toContain('update of Q777');
+		expect(mock.request).not.toHaveBeenCalled();
 	});
 
 	it('surfaces wiki-side rejections as errors via the dispatcher', async () => {

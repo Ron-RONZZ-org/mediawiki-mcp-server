@@ -311,7 +311,8 @@ export interface SavedEntity {
 /**
  * Submits a wbeditentity write (create or update) through the edit service,
  * which injects the CSRF token and change tags. Returns undefined when the
- * wiki accepted the request but returned no entity.
+ * response carries no entity — the module ran but its answer was lost, or
+ * the response has a shape this client does not recognise.
  */
 interface WriteResponse {
 	entity?: { id?: string; type?: string; lastrevid?: number };
