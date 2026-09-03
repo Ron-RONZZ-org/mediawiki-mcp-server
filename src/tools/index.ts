@@ -21,6 +21,7 @@ import { getRevision } from './get-revision.ts';
 import { getSiteInfo } from './get-site-info.ts';
 import { getCategoryMembers } from './get-category-members.ts';
 import { getLinksHere } from './get-links-here.ts';
+import { imageSearch } from './image-search.ts';
 import { listWikis } from './list-wikis.ts';
 import { whoami } from './whoami.ts';
 import { extensionPacks } from './extensions/index.ts';
@@ -58,6 +59,7 @@ const standardTools: Tool<any>[] = [
 	getSiteInfo,
 	getCategoryMembers,
 	getLinksHere,
+	imageSearch,
 	listWikis,
 	whoami,
 	createPage,
