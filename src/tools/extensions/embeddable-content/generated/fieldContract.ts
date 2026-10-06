@@ -60,6 +60,7 @@ export const SOURCE_CLASS_KEYS = [
 	'presentation',
 	'dataset',
 	'text',
+	'law',
 ] as const;
 export type SourceClassKey = (typeof SOURCE_CLASS_KEYS)[number];
 
@@ -94,6 +95,9 @@ export const SOURCE_FIELD_NAMES = [
 	'caseNumber',
 	'international',
 	'legislationNumber',
+	'referenceCode',
+	'content',
+	'translations',
 ] as const;
 export type SourceField = (typeof SOURCE_FIELD_NAMES)[number];
 
