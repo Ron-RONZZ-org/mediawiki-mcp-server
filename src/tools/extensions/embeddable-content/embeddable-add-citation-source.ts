@@ -108,7 +108,7 @@ const FIELD_VALIDATORS = {
 		.regex(ITEM_ID, 'An item ID, such as Q42')
 		.optional()
 		.describe(
-			'The parent-class item, written as a part of statement: the website for a webpage, the channel for a youtube-video, the book for a book-excerpt. Required when creating those classes; must be an existing item of the parent class.',
+			'The parent-class item, written as a part of statement: the website for a webpage, the channel for a youtube-video, the book for a book-excerpt, the legislation for a legal-provision. Required when creating those classes; must be an existing item of the parent class.',
 		),
 	court: z
 		.string()
@@ -137,13 +137,32 @@ const FIELD_VALIDATORS = {
 		.describe(
 			"A marker (value 'yes') for an international legal text (legal-case, legislation, bill, treaty); it replaces the territorial jurisdiction.",
 		),
+	referenceCode: z
+		.string()
+		.max(250)
+		.optional()
+		.describe(
+			'The provision\'s identifier within its legislation, e.g. "Article 5" or "§ 3" (legal-provision only). Required when creating a legal-provision.',
+		),
+	content: z
+		.string()
+		.optional()
+		.describe(
+			'The clause text of a legal-provision (monolingual; its language is INHERITED from the parent legislation). Required when creating a legal-provision.',
+		),
+	translations: z
+		.array(z.object({ language: z.string(), content: z.string() }))
+		.optional()
+		.describe(
+			'Added translations of a legal-provision, one {language, content} row per language (the AddQuotation shape). The original clause stays in content; each row is stored as a monolingual translation claim.',
+		),
 } satisfies Record<(typeof SOURCE_FIELD_NAMES)[number], ZodTypeAny>;
 
 const inputSchema = {
 	classKey: z
 		.enum(SOURCE_CLASS_KEYS)
 		.describe(
-			'The kind of work, matching the Special:AddSource class picker (book, scholarly-article, website, webpage, song, film, video, youtube-channel, youtube-video, book-excerpt, and the Zotero/CSL-aligned classes: newspaper/magazine article, conference paper, report, document, thesis, manuscript, patent, legal case, legislation, bill, treaty, interview, map, presentation, dataset, text). Child classes (webpage, youtube-video, book-excerpt) require their parent class item via parent.',
+			'The kind of work, matching the Special:AddSource class picker (book, scholarly-article, website, webpage, song, film, video, youtube-channel, youtube-video, book-excerpt, and the Zotero/CSL-aligned classes: newspaper/magazine article, conference paper, report, document, thesis, manuscript, patent, legal case, legislation, bill, treaty, interview, map, presentation, dataset, text, legal provision). Child classes (webpage, youtube-video, book-excerpt, legal-provision) require their parent class item via parent.',
 		),
 	...FIELD_VALIDATORS,
 	qid: z
@@ -187,7 +206,16 @@ export const embeddableAddCitationSource: Tool<typeof inputSchema> = {
 		const params: Record<string, string> = { action: 'addsource', class: args.classKey };
 		for (const field of SOURCE_FIELD_NAMES) {
 			const value = args[field];
-			if (value !== undefined && value !== '') {
+			if (value === undefined || value === '') {
+				continue;
+			}
+			// The law translations ride as a JSON array string (the wiki's
+			// action=addsource contract); the other fields are strings.
+			if (field === 'translations' && Array.isArray(value)) {
+				params[field] = JSON.stringify(value);
+				continue;
+			}
+			if (typeof value === 'string') {
 				params[field] = value;
 			}
 		}
