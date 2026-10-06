@@ -30,10 +30,33 @@ const FIELD_VALIDATORS = {
 		.describe("A short description; becomes the item's English description."),
 	language: z
 		.string()
-		.regex(/^[a-z]{2,8}(?:-[a-z0-9]{2,8})*$/i, 'A BCP-47 language code, such as fr or en')
+		.regex(
+			/^([a-z]{2,8}(?:-[a-z0-9]{2,8})*|Other)$/i,
+			'An ISO 639 language code (such as fr or en), or the literal "Other" (paired with otherLanguage)',
+		)
 		.optional()
 		.describe(
-			'The source language as a BCP-47 code (e.g. fr). Stored as a language statement; the item label and description are stored under this term language too (default: en).',
+			'The primary source language as an ISO 639 code (e.g. fr), or the literal "Other" paired with otherLanguage. Stored as a language statement (citable metadata); the item label and description term language is the separate labelLanguage field.',
+		),
+	additionalLanguages: z
+		.string()
+		.optional()
+		.describe(
+			'Comma/semicolon-separated additional ISO 639 language codes for a source available in several languages; the wiki writes one language statement per code.',
+		),
+	otherLanguage: z
+		.string()
+		.max(100)
+		.optional()
+		.describe(
+			'The free-text language used when language is "Other" (a language outside the ISO 639 list); stored verbatim as the language statement.',
+		),
+	labelLanguage: z
+		.string()
+		.regex(/^[a-z]{2,8}(?:-[a-z0-9]{2,8})*$/i, 'A BCP-47 language code, such as en or fr')
+		.optional()
+		.describe(
+			'The language the item label and description are stored in (default en). Independent of the source language(s).',
 		),
 	authors: z
 		.string()
