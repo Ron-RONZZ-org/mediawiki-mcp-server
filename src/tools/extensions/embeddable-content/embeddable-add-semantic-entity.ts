@@ -34,6 +34,13 @@ const FIELD_VALIDATORS = {
 		.max(2000)
 		.optional()
 		.describe("A short description; becomes the item's English description."),
+	labelLanguage: z
+		.string()
+		.regex(/^[a-z]{2,8}(?:-[a-z0-9]{2,8})*$/i, 'A BCP-47 language code, such as en or fr')
+		.optional()
+		.describe(
+			'The language the item label and description are stored in (default en). Some entities have no English name — pick the language of the name you enter.',
+		),
 	givenName: z
 		.string()
 		.optional()

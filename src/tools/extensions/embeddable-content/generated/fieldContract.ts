@@ -117,6 +117,7 @@ export const SEMANTIC_ENTITY_FIELD_NAMES = [
 	'givenName',
 	'familyName',
 	'description',
+	'labelLanguage',
 	'dateOfBirth',
 	'placeOfBirth',
 	'dateOfDeath',

@@ -602,6 +602,7 @@
                         "givenName",
                         "familyName",
                         "description",
+                        "labelLanguage",
                         "dateOfBirth",
                         "placeOfBirth",
                         "dateOfDeath",
@@ -622,6 +623,7 @@
                     "fields": [
                         "label",
                         "description",
+                        "labelLanguage",
                         "developer",
                         "license",
                         "programmingLanguage",
@@ -642,6 +644,7 @@
                     "fields": [
                         "label",
                         "description",
+                        "labelLanguage",
                         "collectiveClass",
                         "parentOrganization",
                         "officialWebsite",
@@ -657,6 +660,7 @@
                         "familyName",
                         "alias",
                         "description",
+                        "labelLanguage",
                         "presentInWork"
                     ],
                     "requiredOnCreate": [
@@ -668,6 +672,7 @@
                     "fields": [
                         "label",
                         "description",
+                        "labelLanguage",
                         "instanceOf"
                     ],
                     "requiredOnCreate": [
