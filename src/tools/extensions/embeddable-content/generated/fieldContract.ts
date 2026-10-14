@@ -26,6 +26,7 @@ export const SPECIAL_CONTENT_FIELD_NAMES = [
 	'sourceUrl',
 	'date',
 	'note',
+	'preNote',
 	'describes',
 	'programmingLanguage',
 	'implementationOf',

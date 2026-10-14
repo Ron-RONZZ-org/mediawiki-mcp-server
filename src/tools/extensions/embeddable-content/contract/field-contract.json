@@ -27,6 +27,7 @@
                         "label",
                         "content",
                         "note",
+                        "preNote",
                         "labelLanguage",
                         "describes",
                         "attributedTo",

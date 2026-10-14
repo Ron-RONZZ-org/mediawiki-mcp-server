@@ -35,7 +35,13 @@ const FIELD_VALIDATORS = {
 		.string()
 		.optional()
 		.describe(
-			'Accepted for kind=math only: an accompanying note rendered below the expression. Rich wikitext (links, media and $…$ math render); multi-line notes are stored backslash-escaped like the payload. Ignored for the other kinds.',
+			'Accepted for kind=math only: a wikitext note rendered below the expression (the post-content note). Rich wikitext (links, media and $…$ math render); multi-line notes are stored backslash-escaped like the payload. Ignored for the other kinds.',
+		),
+	preNote: z
+		.string()
+		.optional()
+		.describe(
+			'Accepted for kind=math only: a wikitext note rendered above the expression (the pre-content note). Rich wikitext (links, media and $…$ math render); multi-line notes are stored backslash-escaped like the payload. Ignored for the other kinds.',
 		),
 	labelLanguage: z
 		.string()
@@ -123,7 +129,7 @@ const inputSchema = {
 export const embeddableAddSpecialContent: Tool<typeof inputSchema> = {
 	name: 'embeddable-add-special-content',
 	description:
-		"Creates or updates a quotation, mathematical expression or code-snippet item on a wiki with the EmbeddableContent extension, mirroring the Special:AddQuotation / AddMath / AddCodeSnippet forms, and returns the item ID and latest revision. Requires the edit right.\n\nThe item is created by the wiki's own special-content service (action=addspecialcontent): classified instance of the kind's class, payload handled exactly like the forms (math delimiters stripped, multi-line content backslash-escaped and decoded at render time), plus the provenance block you supply: attributedTo, source, sourceUrl and date. A quotation's content is stored as monolingual text in language, and attributedTo is required when creating one; its added translations ride in translations. A math item's note is an accompanying wikitext note. Content items carry no description field and create no classic page. A create that matches an existing item (the same authority id or URL, or a highly similar class-filtered label) is refused by the wiki's duplication guard, which returns the existing item instead of creating — update that item instead, or set confirmDuplicate to force the create. When the wiki's response is lost and no item comes back, the tool checks whether an item with the submitted label exists and reports the outcome before you retry. To find existing entities — including the attributedTo person or source item — use wikibase-search-entities first.\n\nSet qid to update an existing item instead: statements on the fields you provide are replaced, blank fields keep the existing statements, and the class is never changed. For the field table, property IDs and a ready-to-submit example, call embeddable-describe-entity-type first.",
+		"Creates or updates a quotation, mathematical expression or code-snippet item on a wiki with the EmbeddableContent extension, mirroring the Special:AddQuotation / AddMath / AddCodeSnippet forms, and returns the item ID and latest revision. Requires the edit right.\n\nThe item is created by the wiki's own special-content service (action=addspecialcontent): classified instance of the kind's class, payload handled exactly like the forms (math delimiters stripped, multi-line content backslash-escaped and decoded at render time), plus the provenance block you supply: attributedTo, source, sourceUrl and date. A quotation's content is stored as monolingual text in language, and attributedTo is required when creating one; its added translations ride in translations. A math item's notes are accompanying wikitext notes: preNote renders above the expression, note below it. Content items carry no description field and create no classic page. A create that matches an existing item (the same authority id or URL, or a highly similar class-filtered label) is refused by the wiki's duplication guard, which returns the existing item instead of creating — update that item instead, or set confirmDuplicate to force the create. When the wiki's response is lost and no item comes back, the tool checks whether an item with the submitted label exists and reports the outcome before you retry. To find existing entities — including the attributedTo person or source item — use wikibase-search-entities first.\n\nSet qid to update an existing item instead: statements on the fields you provide are replaced, blank fields keep the existing statements, and the class is never changed. For the field table, property IDs and a ready-to-submit example, call embeddable-describe-entity-type first.",
 	inputSchema,
 	annotations: {
 		title: 'Add special content',
