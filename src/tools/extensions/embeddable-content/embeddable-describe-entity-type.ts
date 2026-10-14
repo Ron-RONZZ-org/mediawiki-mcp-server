@@ -39,6 +39,7 @@ interface SpecialContentFieldContract {
 		implementationOf?: string | null;
 		translation?: string | null;
 		note?: string | null;
+		preNote?: string | null;
 		provenance?: Record<string, string>;
 	};
 }
