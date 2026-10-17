@@ -7,17 +7,24 @@ import type { ToolContext } from '../runtime/context.ts';
 import { assertAllowedPath, UploadValidationError } from '../transport/uploadGuard.ts';
 import { assertFileExists, FileNotFoundError } from '../transport/fileExistence.ts';
 import { formatEditComment, buildPageUrl } from '../wikis/utils.ts';
+import {
+	imageFactsSchema,
+	submitImageFacts,
+	wrapImageFactsFailure,
+	type ImageFacts,
+} from './imageFacts.ts';
 
 const inputSchema = {
 	filepath: z.string().describe('File path on the local disk'),
 	title: z.string().describe('File title (with or without the "File:" prefix)'),
 	comment: z.string().optional().describe('Reason for uploading the new revision'),
+	...imageFactsSchema,
 } as const;
 
 export const updateFile: Tool<typeof inputSchema> = {
 	name: 'update-file',
 	description:
-		"Uploads a new revision of an existing file from the local disk, preserving prior revisions in the file history, and returns the file title and URL. The upload appears in the wiki's upload log. Replaces the file content (bytes) only; for editing the wikitext on a file's description page, use update-page. The operator restricts which directories are readable; filepath must be an absolute path inside a configured upload directory, or the call fails before contacting the wiki. Fails if no file exists at the target title; for the initial upload, use upload-file. To upload a new revision from a remote web address instead of a local path, use update-file-from-url.",
+		"Uploads a new revision of an existing file from the local disk, preserving prior revisions in the file history, and returns the file title and URL. The upload appears in the wiki's upload log. Replaces the file content (bytes) only; for editing the wikitext on a file's description page, use update-page. The operator restricts which directories are readable; filepath must be an absolute path inside a configured upload directory, or the call fails before contacting the wiki. Optional license, author, licenseInfo, sourceUrl and description replace those image-fact statements on the sitelinked item (mode=update; a blank field keeps the current value). Fails if no file exists at the target title; for the initial upload, use upload-file. To upload a new revision from a remote web address instead of a local path, use update-file-from-url.",
 	inputSchema,
 	annotations: {
 		title: 'Update file',
@@ -29,7 +36,10 @@ export const updateFile: Tool<typeof inputSchema> = {
 	failureVerb: 'update file',
 	target: (a) => a.title,
 
-	async handle({ filepath, title, comment }, ctx: ToolContext): Promise<CallToolResult> {
+	async handle(
+		{ filepath, title, comment, description, license, author, licenseInfo, sourceUrl },
+		ctx: ToolContext,
+	): Promise<CallToolResult> {
 		let resolvedPath: string;
 		try {
 			resolvedPath = await assertAllowedPath(filepath, ctx.uploadDirs.list());
@@ -70,10 +80,19 @@ export const updateFile: Tool<typeof inputSchema> = {
 			}
 		).imageinfo;
 		const filename = data.filename ?? title.replace(/^File:/, '');
+		const facts: ImageFacts = { description, license, author, licenseInfo, sourceUrl };
+		let imageFacts: { itemId?: string; warning?: string };
+		try {
+			imageFacts = await submitImageFacts(ctx, mwn, `File:${filename}`, facts, { mode: 'update' });
+		} catch (error) {
+			throw wrapImageFactsFailure(`File:${filename}`, error);
+		}
 		return ctx.format.ok({
 			filename,
 			pageUrl: imageinfo?.descriptionurl ?? (await buildPageUrl(ctx, `File:${filename}`)),
 			...(imageinfo?.url !== undefined ? { fileUrl: imageinfo.url } : {}),
+			...(imageFacts.itemId !== undefined ? { imageItemId: imageFacts.itemId } : {}),
+			...(imageFacts.warning !== undefined ? { imageFactsWarning: imageFacts.warning } : {}),
 		});
 	},
 };

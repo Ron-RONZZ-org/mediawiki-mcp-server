@@ -54,6 +54,11 @@ export interface ImageFactsResult {
 	warning?: string;
 }
 
+export interface ImageFactsOptions {
+	/** 'update' replaces the statements for each provided field (update-file). */
+	mode?: 'create' | 'update';
+}
+
 /**
  * Wraps a post-upload facts failure with the upload outcome, keeping the
  * wiki error code so the dispatcher still classifies permission/input errors
@@ -92,6 +97,7 @@ export async function submitImageFacts(
 	mwn: Mwn,
 	title: string,
 	facts: ImageFacts,
+	options: ImageFactsOptions = {},
 ): Promise<ImageFactsResult> {
 	if (!hasImageFacts(facts)) {
 		return {};
@@ -106,6 +112,7 @@ export async function submitImageFacts(
 			...(facts.author?.trim() ? { author: facts.author.trim() } : {}),
 			...(facts.licenseInfo?.trim() ? { licenseInfo: facts.licenseInfo.trim() } : {}),
 			...(facts.sourceUrl?.trim() ? { sourceUrl: facts.sourceUrl.trim() } : {}),
+			...(options.mode !== undefined ? { mode: options.mode } : {}),
 		})) as { imagefacts?: { itemId?: unknown } };
 
 		const itemId = response?.imagefacts?.itemId;

@@ -39,8 +39,8 @@ Every tool that operates on a wiki accepts an optional `wiki` argument naming th
 | `delete-page` 🔐 | Delete a wiki page. | `Delete pages, revisions, and log entries` |
 | `move-page` 🔐 | Move (rename) a wiki page. | `Create, edit, and move pages` |
 | `undelete-page` 🔐 | Undelete a wiki page. | `Delete pages, revisions, and log entries` |
-| `update-file` 🔐 | Upload a new revision of an existing file from local disk. | `Upload, replace, and move files` |
-| `update-file-from-url` 🔐 | Upload a new revision of an existing file from a URL. | `Upload, replace, and move files` |
+| `update-file` 🔐 | Upload a new revision of an existing file from local disk, optionally replacing its semantic image facts. | `Upload, replace, and move files` |
+| `update-file-from-url` 🔐 | Upload a new revision of an existing file from a URL, optionally replacing its semantic image facts. | `Upload, replace, and move files` |
 | `update-page` 🔐 | Update an existing wiki page. | `Edit existing pages` |
 | `upload-file` 🔐 | Upload a file to the wiki from local disk, optionally with semantic image facts (license/author/source). | `Upload new files` |
 | `upload-file-from-url` 🔐 | Upload a file to the wiki from a URL, optionally with semantic image facts (license/author/source). | `Upload, replace, and move files` |
@@ -121,7 +121,7 @@ The Add\* forms of the EmbeddableContent extension expose typed entity creation 
 | `embeddable-add-citation-source` | Create or update a citable work item through the wiki's own AddSource service (`action=addsource`), incl. the classic `Source:` page + sitelink. The class enum and fields are contract-driven — the full class set (the Zotero/CSL-aligned legal/document classes included) and their fields. A create the duplication guard flags returns the existing item it collides with (`confirmDuplicate` forces the create); a lost response is verified by label. Requires the `edit` right. |
 | `embeddable-add-semantic-entity` | Create or update a person, software, collective, fictional-character or other-class item through the wiki's own service (`action=addsemanticentity`), incl. the classic `Person:`/`Collective:`/`FOSS:` page + sitelink and the fictional-character `alias` field. A create the duplication guard flags returns the existing item it collides with (`confirmDuplicate` forces the create); a lost response is verified by label. Requires the `edit` right. |
 | `embeddable-get-embed-content` | Render an EmbeddableContent item through the embed API (the Special:Embed renderer). |
-| `embeddable-describe-entity-type` | Return the field tables and resolved property IDs behind the add tools (citation-source served by the wiki's `action=addsource-fields`). |
+| `embeddable-describe-entity-type` | Return the field tables and resolved property IDs behind the add tools, plus the image-facts vocabulary and preseeded license label => Q-id map (served by the wiki's `action=*-fields` endpoints). |
 
 **[WikibaseCitation](https://www.mediawiki.org/wiki/Extension:WikibaseCitation) (custom extension)**
 

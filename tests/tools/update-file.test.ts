@@ -223,4 +223,64 @@ describe('update-file', () => {
 			'/home/user/uploads',
 		]);
 	});
+
+	it('updates semantic image facts with mode=update', async () => {
+		vi.mocked(assertAllowedPath).mockResolvedValue('/var/lib/uploads/cat.jpg');
+		vi.mocked(assertFileExists).mockResolvedValue(undefined);
+		const submitUpload = vi.fn().mockResolvedValue({
+			result: 'Success',
+			filename: 'Cat.jpg',
+			imageinfo: { descriptionurl: 'https://test.wiki/wiki/File:Cat.jpg' },
+		});
+		const submit = vi.fn().mockResolvedValue({ imagefacts: { itemId: 'Q999' } });
+		const { mwn } = ctxWith({ submitUpload });
+		const ctxWithFacts = fakeContext({
+			mwn: async () => mwn as never,
+			edit: { ...baseEdit, submitUpload, submit },
+			uploadDirs: { list: () => ['/home/user/uploads'] },
+		});
+
+		const result = await updateFile.handle(
+			{
+				filepath: '/home/user/uploads/cat.jpg',
+				title: 'File:Cat.jpg',
+				license: 'Q124',
+				author: 'NASA',
+			},
+			ctxWithFacts,
+		);
+
+		const text = assertStructuredSuccess(result);
+		expect(text).toContain('Image item ID: Q999');
+		expect(submit).toHaveBeenCalledWith(
+			mwn,
+			expect.objectContaining({
+				action: 'imagefacts',
+				filename: 'File:Cat.jpg',
+				mode: 'update',
+				license: 'Q124',
+				author: 'NASA',
+			}),
+		);
+	});
+
+	it('does not call imagefacts when updating without facts', async () => {
+		vi.mocked(assertAllowedPath).mockResolvedValue('/var/lib/uploads/cat.jpg');
+		vi.mocked(assertFileExists).mockResolvedValue(undefined);
+		const submitUpload = vi.fn().mockResolvedValue({ result: 'Success' });
+		const submit = vi.fn();
+		const { mwn } = ctxWith({ submitUpload });
+		const ctxWithSubmit = fakeContext({
+			mwn: async () => mwn as never,
+			edit: { ...baseEdit, submitUpload, submit },
+			uploadDirs: { list: () => ['/home/user/uploads'] },
+		});
+
+		await updateFile.handle(
+			{ filepath: '/home/user/uploads/cat.jpg', title: 'File:Cat.jpg' },
+			ctxWithSubmit,
+		);
+
+		expect(submit).not.toHaveBeenCalled();
+	});
 });

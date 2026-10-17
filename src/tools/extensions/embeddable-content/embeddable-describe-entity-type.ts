@@ -22,6 +22,31 @@ interface SourceFieldContract {
 	};
 }
 
+interface ImageFactsFieldContract {
+	instanceOf?: string;
+	imageClasses?: Record<string, string>;
+	imageProperties?: Record<string, string>;
+	provenance?: { sourceUrl?: string | null };
+	/** label => item id (the wiki's preseeded license vocabulary) */
+	licenses?: Record<string, string>;
+}
+
+/**
+ * Fetches the image-facts vocabulary from the wiki's own
+ * action=imagefacts-fields endpoint: the image class/property ids and the
+ * preseeded license label => Q-id map. Returns undefined on a wiki whose
+ * EmbeddableContent predates the endpoint.
+ */
+async function fetchImageFacts(ctx: ToolContext): Promise<ImageFactsFieldContract | undefined> {
+	const mwn = await ctx.mwn();
+	// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- action=imagefacts-fields response shape; trusted at this boundary
+	const response = (await mwn.request({
+		action: 'imagefacts-fields',
+		formatversion: '2',
+	})) as { imagefactsfields?: ImageFactsFieldContract };
+	return response.imagefactsfields;
+}
+
 interface SpecialContentFieldContract {
 	flows: {
 		kind?: string;
@@ -120,17 +145,17 @@ async function fetchCitationSource(ctx: ToolContext): Promise<SourceFieldContrac
 
 const inputSchema = {
 	kind: z
-		.enum(['special-content', 'citation-source', 'semantic-entity'])
+		.enum(['special-content', 'citation-source', 'semantic-entity', 'image-facts'])
 		.optional()
 		.describe(
-			'Narrow the report to one family: the special-content Add* forms (quotation, math, code-snippet), the citation-source AddSource classes, or the semantic-entity Add* forms (person, software, collective, fictional-character, other). Omitted, all are returned.',
+			'Narrow the report to one family: the special-content Add* forms (quotation, math, code-snippet), the citation-source AddSource classes, the semantic-entity Add* forms (person, software, collective, fictional-character, other), or the image-facts vocabulary (image class/property ids + the preseeded license label => Q-id map). Omitted, all are returned.',
 		),
 } as const;
 
 export const embeddableDescribeEntityType: Tool<typeof inputSchema> = {
 	name: 'embeddable-describe-entity-type',
 	description:
-		'Returns the field tables, resolved property IDs and a ready-to-submit example for the EmbeddableContent Add* flows, as the discovery counterpart of embeddable-add-special-content, embeddable-add-citation-source and embeddable-add-semantic-entity. Enabled only when the wiki has the EmbeddableContent extension.\n\nCall this before the add tools to see exactly which fields a kind or class exposes, which properties they are stored on (resolved on this wiki), and a JSON example of a full submission.',
+		'Returns the field tables, resolved property IDs and a ready-to-submit example for the EmbeddableContent Add* flows, as the discovery counterpart of embeddable-add-special-content, embeddable-add-citation-source and embeddable-add-semantic-entity. Enabled only when the wiki has the EmbeddableContent extension.\n\nCall this before the add tools to see exactly which fields a kind or class exposes, which properties they are stored on (resolved on this wiki), and a JSON example of a full submission. The image-facts section returns the license label => Q-id map, so an upload can resolve a license without a fuzzy entity search.',
 	inputSchema,
 	annotations: {
 		title: 'Describe entity type',
@@ -154,10 +179,18 @@ export const embeddableDescribeEntityType: Tool<typeof inputSchema> = {
 				: undefined;
 		const citationSource =
 			kind === undefined || kind === 'citation-source' ? await fetchCitationSource(ctx) : undefined;
+		const imageFacts =
+			kind === undefined || kind === 'image-facts' ? await fetchImageFacts(ctx) : undefined;
 		if (kind === 'citation-source' && citationSource === undefined) {
 			return ctx.format.error(
 				'upstream_failure',
 				'The wiki did not answer action=addsource-fields — its EmbeddableContent version is too old to serve the source field contract.',
+			);
+		}
+		if (kind === 'image-facts' && imageFacts === undefined) {
+			return ctx.format.error(
+				'upstream_failure',
+				'The wiki did not answer action=imagefacts-fields — its EmbeddableContent version is too old to serve the image-facts vocabulary.',
 			);
 		}
 		if (kind === 'special-content' && specialContent === undefined) {
@@ -204,6 +237,7 @@ export const embeddableDescribeEntityType: Tool<typeof inputSchema> = {
 			...(specialContent !== undefined ? { specialContent } : {}),
 			...(citationSource !== undefined ? { citationSource } : {}),
 			...(semanticEntity !== undefined ? { semanticEntity } : {}),
+			...(imageFacts !== undefined ? { imageFacts } : {}),
 			...(missing.length > 0
 				? {
 						unresolvedVocabulary: missing,
