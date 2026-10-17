@@ -39,8 +39,8 @@ Every tool that operates on a wiki accepts an optional `wiki` argument naming th
 | `delete-page` 🔐 | Delete a wiki page. | `Delete pages, revisions, and log entries` |
 | `move-page` 🔐 | Move (rename) a wiki page. | `Create, edit, and move pages` |
 | `undelete-page` 🔐 | Undelete a wiki page. | `Delete pages, revisions, and log entries` |
-| `update-file` 🔐 | Upload a new revision of an existing file from local disk, optionally replacing its semantic image facts. | `Upload, replace, and move files` |
-| `update-file-from-url` 🔐 | Upload a new revision of an existing file from a URL, optionally replacing its semantic image facts. | `Upload, replace, and move files` |
+| `update-file` 🔐 | Upload a new revision (or update only the semantic image facts with `factsOnly`) and replace/clear facts. | `Upload, replace, and move files` |
+| `update-file-from-url` 🔐 | Upload a new revision of an existing file from a URL, optionally replacing/clearing its semantic image facts. | `Upload, replace, and move files` |
 | `update-page` 🔐 | Update an existing wiki page. | `Edit existing pages` |
 | `upload-file` 🔐 | Upload a file to the wiki from local disk, optionally with semantic image facts (license/author/source). | `Upload new files` |
 | `upload-file-from-url` 🔐 | Upload a file to the wiki from a URL, optionally with semantic image facts (license/author/source). | `Upload, replace, and move files` |

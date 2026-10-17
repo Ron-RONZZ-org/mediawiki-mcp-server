@@ -41,6 +41,18 @@ export const imageFactsSchema = {
 		.describe('Source URL of the original file (provenance statement).'),
 } as const;
 
+export type ImageFactsClearField = 'license' | 'author' | 'licenseInfo' | 'sourceUrl';
+
+/** Explicit clear list for the update tools (mode=update only). */
+export const imageFactsClearSchema = {
+	clear: z
+		.array(z.enum(['license', 'author', 'licenseInfo', 'sourceUrl']))
+		.optional()
+		.describe(
+			'Fact fields to remove from the image item (mode=update only). A field cannot be both cleared and given a value.',
+		),
+} as const;
+
 export interface ImageFacts {
 	description?: string;
 	license?: string;
@@ -57,6 +69,8 @@ export interface ImageFactsResult {
 export interface ImageFactsOptions {
 	/** 'update' replaces the statements for each provided field (update-file). */
 	mode?: 'create' | 'update';
+	/** Fields to remove; requires mode=update. */
+	clear?: ImageFactsClearField[];
 }
 
 /**
@@ -64,18 +78,22 @@ export interface ImageFactsOptions {
  * wiki error code so the dispatcher still classifies permission/input errors
  * as such instead of a generic upstream failure.
  */
-export function wrapImageFactsFailure(filePage: string, error: unknown): Error {
-	const wrapped = new Error(
-		`The file was uploaded as ${filePage}, but attaching image facts failed: ${errorMessage(error)}`,
-	) as Error & { code?: string };
+export function wrapImageFactsFailure(filePage: string, error: unknown, uploaded = true): Error {
+	const message = uploaded
+		? `The file was uploaded as ${filePage}, but attaching image facts failed: ${errorMessage(error)}`
+		: `Updating image facts for ${filePage} failed: ${errorMessage(error)}`;
+	const wrapped = new Error(message) as Error & { code?: string };
 	if (isErrnoException(error) && error.code !== undefined) {
 		wrapped.code = error.code;
 	}
 	return wrapped;
 }
 
-function hasImageFacts(facts: ImageFacts): boolean {
-	return Object.values(facts).some((value) => typeof value === 'string' && value.trim() !== '');
+export function hasImageFacts(facts: ImageFacts, clear?: ImageFactsClearField[]): boolean {
+	return (
+		(clear?.length ?? 0) > 0 ||
+		Object.values(facts).some((value) => typeof value === 'string' && value.trim() !== '')
+	);
 }
 
 function isMissingAction(error: unknown, message: string): boolean {
@@ -99,7 +117,7 @@ export async function submitImageFacts(
 	facts: ImageFacts,
 	options: ImageFactsOptions = {},
 ): Promise<ImageFactsResult> {
-	if (!hasImageFacts(facts)) {
+	if (!hasImageFacts(facts, options.clear)) {
 		return {};
 	}
 	try {
@@ -113,6 +131,9 @@ export async function submitImageFacts(
 			...(facts.licenseInfo?.trim() ? { licenseInfo: facts.licenseInfo.trim() } : {}),
 			...(facts.sourceUrl?.trim() ? { sourceUrl: facts.sourceUrl.trim() } : {}),
 			...(options.mode !== undefined ? { mode: options.mode } : {}),
+			...(options.clear !== undefined && options.clear.length > 0
+				? { clear: options.clear.join(',') }
+				: {}),
 		})) as { imagefacts?: { itemId?: unknown } };
 
 		const itemId = response?.imagefacts?.itemId;
@@ -120,15 +141,14 @@ export async function submitImageFacts(
 			return { itemId };
 		}
 		return {
-			warning:
-				'The wiki accepted the image facts but returned no item id; the file itself was uploaded successfully.',
+			warning: 'The wiki accepted the image facts but returned no item id.',
 		};
 	} catch (error) {
 		const message = errorMessage(error);
 		if (isMissingAction(error, message)) {
 			return {
 				warning:
-					'This wiki has no image-facts API (EmbeddableContent action=imagefacts); the file was uploaded without semantic license/author facts.',
+					'This wiki has no image-facts API (EmbeddableContent action=imagefacts); the semantic license/author facts were not written.',
 			};
 		}
 		throw error;
