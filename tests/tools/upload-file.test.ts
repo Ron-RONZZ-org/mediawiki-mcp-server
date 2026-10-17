@@ -145,6 +145,126 @@ describe('upload-file', () => {
 		]);
 	});
 
+	it('attaches semantic image facts and returns the item id', async () => {
+		vi.mocked(assertAllowedPath).mockResolvedValue('/var/lib/uploads/cat.jpg');
+		const mock = createMockMwn({ upload: vi.fn() });
+		const submitUpload = vi.fn().mockResolvedValue({
+			result: 'Success',
+			filename: 'Cat.jpg',
+			imageinfo: { descriptionurl: 'https://test.wiki/wiki/File:Cat.jpg' },
+		});
+		const submit = vi.fn().mockResolvedValue({ imagefacts: { itemId: 'Q999' } });
+		const ctx = fakeContext({
+			mwn: async () => mock as never,
+			edit: { ...baseEdit, submitUpload, submit },
+			uploadDirs: { list: () => ['/home/user/uploads'] },
+		});
+
+		const result = await uploadFile.handle(
+			{
+				filepath: '/home/user/uploads/cat.jpg',
+				title: 'File:Cat.jpg',
+				text: 'A cat.',
+				description: 'A cat photo.',
+				license: 'Q124',
+				author: 'NASA',
+				licenseInfo: 'Public domain, modified.',
+				sourceUrl: 'https://source.example/cat.jpg',
+			},
+			ctx,
+		);
+
+		const text = assertStructuredSuccess(result);
+		expect(text).toContain('Image item ID: Q999');
+		expect(submit).toHaveBeenCalledWith(
+			mock,
+			expect.objectContaining({
+				action: 'imagefacts',
+				filename: 'File:Cat.jpg',
+				description: 'A cat photo.',
+				license: 'Q124',
+				author: 'NASA',
+				licenseInfo: 'Public domain, modified.',
+				sourceUrl: 'https://source.example/cat.jpg',
+			}),
+		);
+	});
+
+	it('does not call imagefacts when no facts are supplied', async () => {
+		vi.mocked(assertAllowedPath).mockResolvedValue('/var/lib/uploads/cat.jpg');
+		const mock = createMockMwn({ upload: vi.fn() });
+		const submitUpload = vi.fn().mockResolvedValue({ result: 'Success' });
+		const submit = vi.fn();
+		const ctx = fakeContext({
+			mwn: async () => mock as never,
+			edit: { ...baseEdit, submitUpload, submit },
+			uploadDirs: { list: () => ['/home/user/uploads'] },
+		});
+
+		await uploadFile.handle(
+			{ filepath: '/home/user/uploads/cat.jpg', title: 'File:Cat.jpg', text: 'A cat.' },
+			ctx,
+		);
+
+		expect(submit).not.toHaveBeenCalled();
+	});
+
+	it('reports a warning when the wiki has no imagefacts action', async () => {
+		vi.mocked(assertAllowedPath).mockResolvedValue('/var/lib/uploads/cat.jpg');
+		const mock = createMockMwn({ upload: vi.fn() });
+		const submitUpload = vi.fn().mockResolvedValue({ result: 'Success', filename: 'Cat.jpg' });
+		const submit = vi
+			.fn()
+			.mockRejectedValue(
+				createMockMwnError('badvalue', 'Unrecognized value for parameter "action": imagefacts.'),
+			);
+		const ctx = fakeContext({
+			mwn: async () => mock as never,
+			edit: { ...baseEdit, submitUpload, submit },
+			uploadDirs: { list: () => ['/home/user/uploads'] },
+		});
+
+		const result = await uploadFile.handle(
+			{
+				filepath: '/home/user/uploads/cat.jpg',
+				title: 'File:Cat.jpg',
+				text: 'A cat.',
+				license: 'Q124',
+			},
+			ctx,
+		);
+
+		const text = assertStructuredSuccess(result);
+		expect(text).toContain('Image facts warning');
+		expect(text).toContain('no image-facts API');
+	});
+
+	it('reports the successful upload when attaching facts fails', async () => {
+		vi.mocked(assertAllowedPath).mockResolvedValue('/var/lib/uploads/cat.jpg');
+		const mock = createMockMwn({ upload: vi.fn() });
+		const submitUpload = vi.fn().mockResolvedValue({ result: 'Success', filename: 'Cat.jpg' });
+		const submit = vi.fn().mockRejectedValue(createMockMwnError('permissiondenied'));
+		const ctx = fakeContext({
+			mwn: async () => mock as never,
+			edit: { ...baseEdit, submitUpload, submit },
+			uploadDirs: { list: () => ['/home/user/uploads'] },
+		});
+
+		const result = await dispatch(
+			uploadFile,
+			ctx,
+		)({
+			filepath: '/home/user/uploads/cat.jpg',
+			title: 'File:Cat.jpg',
+			text: 'A cat.',
+			license: 'Q124',
+		});
+
+		const envelope = assertStructuredError(result, 'permission_denied');
+		expect(envelope.message).toContain('uploaded as File:Cat.jpg');
+		expect(envelope.message).toContain('attaching image facts failed');
+	});
+
 	it('dispatches permissiondenied as permission_denied via dispatcher', async () => {
 		vi.mocked(assertAllowedPath).mockResolvedValue('/var/lib/uploads/cat.jpg');
 		const mock = createMockMwn();

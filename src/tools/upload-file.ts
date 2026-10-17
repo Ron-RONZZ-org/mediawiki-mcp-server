@@ -6,18 +6,25 @@ import type { Tool } from '../runtime/tool.ts';
 import type { ToolContext } from '../runtime/context.ts';
 import { assertAllowedPath, UploadValidationError } from '../transport/uploadGuard.ts';
 import { formatEditComment, buildPageUrl } from '../wikis/utils.ts';
+import {
+	imageFactsSchema,
+	submitImageFacts,
+	wrapImageFactsFailure,
+	type ImageFacts,
+} from './imageFacts.ts';
 
 const inputSchema = {
 	filepath: z.string().describe('File path on the local disk'),
 	title: z.string().describe('File title (with or without the "File:" prefix)'),
 	text: z.string().describe('Wikitext on the file page'),
 	comment: z.string().optional().describe('Reason for uploading the file'),
+	...imageFactsSchema,
 } as const;
 
 export const uploadFile: Tool<typeof inputSchema> = {
 	name: 'upload-file',
 	description:
-		"Uploads a file from the local disk into the wiki's File namespace and returns the resulting file title and URL. The upload appears in the wiki's upload log. The operator restricts which directories are readable; filepath must be an absolute path inside a configured upload directory, or the call fails before contacting the wiki. Fails if a file with the target title already exists (the wiki does not silently overwrite existing files). To upload directly from a remote web address instead of a local path, use upload-file-from-url. To replace an existing file with a new revision, use update-file.",
+		"Uploads a file from the local disk into the wiki's File namespace and returns the resulting file title and URL. The upload appears in the wiki's upload log. The operator restricts which directories are readable; filepath must be an absolute path inside a configured upload directory, or the call fails before contacting the wiki. Fails if a file with the target title already exists (the wiki does not silently overwrite existing files). Optional license, author, licenseInfo, sourceUrl and description attach the semantic image facts on wikis running the EmbeddableContent image itemization; on other wikis the upload succeeds with a warning and no item. To upload directly from a remote web address instead of a local path, use upload-file-from-url. To replace an existing file with a new revision, use update-file.",
 	inputSchema,
 	annotations: {
 		title: 'Upload file',
@@ -29,7 +36,10 @@ export const uploadFile: Tool<typeof inputSchema> = {
 	failureVerb: 'upload file',
 	target: (a) => a.title,
 
-	async handle({ filepath, title, text, comment }, ctx: ToolContext): Promise<CallToolResult> {
+	async handle(
+		{ filepath, title, text, comment, description, license, author, licenseInfo, sourceUrl },
+		ctx: ToolContext,
+	): Promise<CallToolResult> {
 		let resolvedPath: string;
 		try {
 			resolvedPath = await assertAllowedPath(filepath, ctx.uploadDirs.list());
@@ -58,10 +68,19 @@ export const uploadFile: Tool<typeof inputSchema> = {
 			}
 		).imageinfo;
 		const filename = data.filename ?? title.replace(/^File:/, '');
+		const facts: ImageFacts = { description, license, author, licenseInfo, sourceUrl };
+		let imageFacts: { itemId?: string; warning?: string };
+		try {
+			imageFacts = await submitImageFacts(ctx, mwn, `File:${filename}`, facts);
+		} catch (error) {
+			throw wrapImageFactsFailure(`File:${filename}`, error);
+		}
 		return ctx.format.ok({
 			filename,
 			pageUrl: imageinfo?.descriptionurl ?? (await buildPageUrl(ctx, `File:${filename}`)),
 			...(imageinfo?.url !== undefined ? { fileUrl: imageinfo.url } : {}),
+			...(imageFacts.itemId !== undefined ? { imageItemId: imageFacts.itemId } : {}),
+			...(imageFacts.warning !== undefined ? { imageFactsWarning: imageFacts.warning } : {}),
 		});
 	},
 };

@@ -74,6 +74,69 @@ describe('upload-file-from-url', () => {
 		expect(mock.uploadFromUrl).not.toHaveBeenCalled();
 	});
 
+	it('attaches semantic image facts after a URL upload', async () => {
+		const mock = createMockMwn({ uploadFromUrl: vi.fn() });
+		const submitUploadFromBytes = vi.fn().mockResolvedValue(UPLOAD_OK);
+		const submit = vi.fn().mockResolvedValue({ imagefacts: { itemId: 'Q777' } });
+		const ctx = fakeContext({
+			mwn: async () => mock as never,
+			edit: { ...baseEdit, submitUploadFromBytes, submit },
+		});
+
+		const result = await uploadFileFromUrl.handle(
+			{
+				url: 'https://source.example/cat.jpg',
+				title: 'File:Cat.jpg',
+				text: 'A cat.',
+				license: 'Q124',
+				author: 'NASA',
+				sourceUrl: 'https://source.example/cat.jpg',
+			},
+			ctx,
+		);
+
+		const text = assertStructuredSuccess(result);
+		expect(text).toContain('Image item ID: Q777');
+		expect(submit).toHaveBeenCalledWith(
+			mock,
+			expect.objectContaining({
+				action: 'imagefacts',
+				filename: 'File:Cat.jpg',
+				license: 'Q124',
+				author: 'NASA',
+				sourceUrl: 'https://source.example/cat.jpg',
+			}),
+		);
+	});
+
+	it('warns (upload still succeeds) when the wiki has no imagefacts action', async () => {
+		const mock = createMockMwn({ uploadFromUrl: vi.fn() });
+		const submitUploadFromBytes = vi.fn().mockResolvedValue(UPLOAD_OK);
+		const submit = vi
+			.fn()
+			.mockRejectedValue(
+				createMockMwnError('badvalue', 'Unrecognized value for parameter "action": imagefacts.'),
+			);
+		const ctx = fakeContext({
+			mwn: async () => mock as never,
+			edit: { ...baseEdit, submitUploadFromBytes, submit },
+		});
+
+		const result = await uploadFileFromUrl.handle(
+			{
+				url: 'https://source.example/cat.jpg',
+				title: 'File:Cat.jpg',
+				text: 'A cat.',
+				license: 'Q124',
+			},
+			ctx,
+		);
+
+		const text = assertStructuredSuccess(result);
+		expect(text).toContain('Image facts warning');
+		expect(text).toContain('no image-facts API');
+	});
+
 	it('rescues to wiki copy-upload when the server cannot reach the URL', async () => {
 		vi.mocked(fetchFileBytes).mockRejectedValue(new FetchError('connect ECONNREFUSED', 'system'));
 		const mock = createMockMwn({ uploadFromUrl: vi.fn().mockResolvedValue(UPLOAD_OK) });

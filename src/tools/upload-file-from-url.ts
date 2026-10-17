@@ -7,18 +7,25 @@ import type { ToolContext } from '../runtime/context.ts';
 import { errorMessage } from '../errors/isErrnoException.ts';
 import { fetchFileBytes, shouldRescueToWiki } from '../transport/httpFetch.ts';
 import { formatEditComment, buildPageUrl } from '../wikis/utils.ts';
+import {
+	imageFactsSchema,
+	submitImageFacts,
+	wrapImageFactsFailure,
+	type ImageFacts,
+} from './imageFacts.ts';
 
 const inputSchema = {
 	url: z.string().url().describe('URL of the file to upload'),
 	title: z.string().describe('File title (with or without the "File:" prefix)'),
 	text: z.string().describe('Wikitext on the file page'),
 	comment: z.string().optional().describe('Reason for uploading the file'),
+	...imageFactsSchema,
 } as const;
 
 export const uploadFileFromUrl: Tool<typeof inputSchema> = {
 	name: 'upload-file-from-url',
 	description:
-		"Fetches a file from a remote web URL and uploads it into the wiki's File namespace, returning the resulting file title and URL. The upload appears in the wiki's upload log. Works whether or not the wiki has upload-by-URL enabled: the server retrieves the file and uploads it directly, falling back to wiki-side fetching only when it cannot reach the URL itself. Fails if a file with the target title already exists. To replace an existing file with a new revision, use update-file-from-url.",
+		"Fetches a file from a remote web URL and uploads it into the wiki's File namespace, returning the resulting file title and URL. The upload appears in the wiki's upload log. Works whether or not the wiki has upload-by-URL enabled: the server retrieves the file and uploads it directly, falling back to wiki-side fetching only when it cannot reach the URL itself. Fails if a file with the target title already exists. Optional license, author, licenseInfo, sourceUrl and description attach the semantic image facts on wikis running the EmbeddableContent image itemization; on other wikis the upload succeeds with a warning and no item. To replace an existing file with a new revision, use update-file-from-url.",
 	inputSchema,
 	annotations: {
 		title: 'Upload file from URL',
@@ -30,7 +37,10 @@ export const uploadFileFromUrl: Tool<typeof inputSchema> = {
 	failureVerb: 'upload file',
 	target: (a) => a.title,
 
-	async handle({ url, title, text, comment }, ctx: ToolContext): Promise<CallToolResult> {
+	async handle(
+		{ url, title, text, comment, description, license, author, licenseInfo, sourceUrl },
+		ctx: ToolContext,
+	): Promise<CallToolResult> {
 		const mwn = await ctx.mwn();
 		const baseParams: ApiUploadParams = {
 			comment: formatEditComment(ctx, 'upload-file-from-url', comment),
@@ -76,10 +86,19 @@ export const uploadFileFromUrl: Tool<typeof inputSchema> = {
 			}
 		).imageinfo;
 		const filename = data.filename ?? title.replace(/^File:/, '');
+		const facts: ImageFacts = { description, license, author, licenseInfo, sourceUrl };
+		let imageFacts: { itemId?: string; warning?: string };
+		try {
+			imageFacts = await submitImageFacts(ctx, mwn, `File:${filename}`, facts);
+		} catch (error) {
+			throw wrapImageFactsFailure(`File:${filename}`, error);
+		}
 		return ctx.format.ok({
 			filename,
 			pageUrl: imageinfo?.descriptionurl ?? (await buildPageUrl(ctx, `File:${filename}`)),
 			...(imageinfo?.url !== undefined ? { fileUrl: imageinfo.url } : {}),
+			...(imageFacts.itemId !== undefined ? { imageItemId: imageFacts.itemId } : {}),
+			...(imageFacts.warning !== undefined ? { imageFactsWarning: imageFacts.warning } : {}),
 		});
 	},
 };
