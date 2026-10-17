@@ -42,8 +42,8 @@ Every tool that operates on a wiki accepts an optional `wiki` argument naming th
 | `update-file` 🔐 | Upload a new revision of an existing file from local disk. | `Upload, replace, and move files` |
 | `update-file-from-url` 🔐 | Upload a new revision of an existing file from a URL. | `Upload, replace, and move files` |
 | `update-page` 🔐 | Update an existing wiki page. | `Edit existing pages` |
-| `upload-file` 🔐 | Upload a file to the wiki from local disk. | `Upload new files` |
-| `upload-file-from-url` 🔐 | Upload a file to the wiki from a URL. | `Upload, replace, and move files` |
+| `upload-file` 🔐 | Upload a file to the wiki from local disk, optionally with semantic image facts (license/author/source). | `Upload new files` |
+| `upload-file-from-url` 🔐 | Upload a file to the wiki from a URL, optionally with semantic image facts (license/author/source). | `Upload, replace, and move files` |
 
 #### Wiki management
 
