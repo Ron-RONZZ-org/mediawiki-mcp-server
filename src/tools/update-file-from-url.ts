@@ -9,6 +9,7 @@ import { assertFileExists, FileNotFoundError } from '../transport/fileExistence.
 import { fetchFileBytes, shouldRescueToWiki } from '../transport/httpFetch.ts';
 import { formatEditComment, buildPageUrl } from '../wikis/utils.ts';
 import {
+	imageFactsClearSchema,
 	imageFactsSchema,
 	submitImageFacts,
 	wrapImageFactsFailure,
@@ -20,12 +21,13 @@ const inputSchema = {
 	title: z.string().describe('File title (with or without the "File:" prefix)'),
 	comment: z.string().optional().describe('Reason for uploading the new revision'),
 	...imageFactsSchema,
+	...imageFactsClearSchema,
 } as const;
 
 export const updateFileFromUrl: Tool<typeof inputSchema> = {
 	name: 'update-file-from-url',
 	description:
-		"Fetches a file from a remote web URL and uploads it as a new revision of an existing file, preserving prior revisions in the file history, and returns the file title and URL. The upload appears in the wiki's upload log. Replaces the file content (bytes) only; for editing the wikitext on a file's description page, use update-page. Optional license, author, licenseInfo, sourceUrl and description replace those image-fact statements on the sitelinked item (mode=update; a blank field keeps the current value). Works whether or not the wiki has upload-by-URL enabled: the server retrieves the file and uploads it directly, falling back to wiki-side fetching only when it cannot reach the URL itself. Fails if no file exists at the target title; for the initial upload, use upload-file-from-url.",
+		"Fetches a file from a remote web URL and uploads it as a new revision of an existing file, preserving prior revisions in the file history, and returns the file title and URL. The upload appears in the wiki's upload log. Replaces the file content (bytes) only; for editing the wikitext on a file's description page, use update-page. Optional license, author, licenseInfo, sourceUrl and description replace those image-fact statements on the sitelinked item (mode=update; a blank field keeps the current value), and clear removes the named fields. Works whether or not the wiki has upload-by-URL enabled: the server retrieves the file and uploads it directly, falling back to wiki-side fetching only when it cannot reach the URL itself. Fails if no file exists at the target title; for the initial upload, use upload-file-from-url.",
 	inputSchema,
 	annotations: {
 		title: 'Update file from URL',
@@ -38,7 +40,7 @@ export const updateFileFromUrl: Tool<typeof inputSchema> = {
 	target: (a) => a.title,
 
 	async handle(
-		{ url, title, comment, description, license, author, licenseInfo, sourceUrl },
+		{ url, title, comment, description, license, author, licenseInfo, sourceUrl, clear },
 		ctx: ToolContext,
 	): Promise<CallToolResult> {
 		const mwn = await ctx.mwn();
@@ -100,7 +102,10 @@ export const updateFileFromUrl: Tool<typeof inputSchema> = {
 		const facts: ImageFacts = { description, license, author, licenseInfo, sourceUrl };
 		let imageFacts: { itemId?: string; warning?: string };
 		try {
-			imageFacts = await submitImageFacts(ctx, mwn, `File:${filename}`, facts, { mode: 'update' });
+			imageFacts = await submitImageFacts(ctx, mwn, `File:${filename}`, facts, {
+				mode: 'update',
+				clear,
+			});
 		} catch (error) {
 			throw wrapImageFactsFailure(`File:${filename}`, error);
 		}

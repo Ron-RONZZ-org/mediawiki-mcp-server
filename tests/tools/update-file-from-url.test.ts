@@ -195,4 +195,32 @@ describe('update-file-from-url', () => {
 			}),
 		);
 	});
+
+	it('sends an explicit clear list with mode=update', async () => {
+		const mock = createMockMwn({ uploadFromUrl: vi.fn() });
+		const submitUploadFromBytes = vi.fn().mockResolvedValue(UPLOAD_OK);
+		const submit = vi.fn().mockResolvedValue({ imagefacts: { itemId: 'Q888' } });
+		const ctx = fakeContext({
+			mwn: async () => mock as never,
+			edit: { ...baseEdit, submitUploadFromBytes, submit },
+		});
+
+		await updateFileFromUrl.handle(
+			{
+				url: 'https://example.com/cat.jpg',
+				title: 'File:Cat.jpg',
+				clear: ['license'],
+			},
+			ctx,
+		);
+
+		expect(submit).toHaveBeenCalledWith(
+			mock,
+			expect.objectContaining({
+				action: 'imagefacts',
+				mode: 'update',
+				clear: 'license',
+			}),
+		);
+	});
 });

@@ -283,4 +283,82 @@ describe('update-file', () => {
 
 		expect(submit).not.toHaveBeenCalled();
 	});
+
+	it('factsOnly updates facts without touching filepath or uploading bytes', async () => {
+		vi.mocked(assertFileExists).mockResolvedValue(undefined);
+		const submitUpload = vi.fn();
+		const submit = vi.fn().mockResolvedValue({ imagefacts: { itemId: 'Q999' } });
+		const mwn = createMockMwn();
+		const ctx = fakeContext({
+			mwn: async () => mwn as never,
+			edit: { ...baseEdit, submitUpload, submit },
+		});
+
+		const result = await updateFile.handle(
+			{
+				title: 'File:Cat.jpg',
+				factsOnly: true,
+				license: 'Q319',
+				author: 'Author D',
+			},
+			ctx,
+		);
+
+		const text = assertStructuredSuccess(result);
+		expect(text).toContain('Image item ID: Q999');
+		expect(text).toContain('Facts only: true');
+		expect(assertAllowedPath).not.toHaveBeenCalled();
+		expect(submitUpload).not.toHaveBeenCalled();
+		expect(submit).toHaveBeenCalledWith(
+			mwn,
+			expect.objectContaining({
+				action: 'imagefacts',
+				filename: 'File:Cat.jpg',
+				mode: 'update',
+				license: 'Q319',
+				author: 'Author D',
+			}),
+		);
+	});
+
+	it('factsOnly rejects a call with no facts and no clear list', async () => {
+		vi.mocked(assertFileExists).mockResolvedValue(undefined);
+		const submit = vi.fn();
+		const ctx = fakeContext({
+			mwn: async () => createMockMwn() as never,
+			edit: { ...baseEdit, submitUpload: vi.fn(), submit },
+		});
+
+		const result = await updateFile.handle({ title: 'File:Cat.jpg', factsOnly: true }, ctx);
+
+		const envelope = assertStructuredError(result, 'invalid_input');
+		expect(envelope.message).toContain('at least one fact field or clear entry');
+		expect(submit).not.toHaveBeenCalled();
+	});
+
+	it('sends an explicit clear list with mode=update', async () => {
+		vi.mocked(assertFileExists).mockResolvedValue(undefined);
+		const submitUpload = vi.fn();
+		const submit = vi.fn().mockResolvedValue({ imagefacts: { itemId: 'Q999' } });
+		const mwn = createMockMwn();
+		const ctx = fakeContext({
+			mwn: async () => mwn as never,
+			edit: { ...baseEdit, submitUpload, submit },
+		});
+
+		await updateFile.handle(
+			{ title: 'File:Cat.jpg', factsOnly: true, clear: ['licenseInfo', 'sourceUrl'] },
+			ctx,
+		);
+
+		expect(submit).toHaveBeenCalledWith(
+			mwn,
+			expect.objectContaining({
+				action: 'imagefacts',
+				mode: 'update',
+				clear: 'licenseInfo,sourceUrl',
+			}),
+		);
+		expect(submitUpload).not.toHaveBeenCalled();
+	});
 });
