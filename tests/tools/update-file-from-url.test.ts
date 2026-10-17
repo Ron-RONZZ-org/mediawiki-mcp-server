@@ -162,4 +162,37 @@ describe('update-file-from-url', () => {
 
 		expect(mock.uploadFromUrl.mock.calls[0][3]).toHaveProperty('tags', 'mcp-server');
 	});
+
+	it('updates semantic image facts with mode=update', async () => {
+		const mock = createMockMwn({ uploadFromUrl: vi.fn() });
+		const submitUploadFromBytes = vi.fn().mockResolvedValue(UPLOAD_OK);
+		const submit = vi.fn().mockResolvedValue({ imagefacts: { itemId: 'Q888' } });
+		const ctx = fakeContext({
+			mwn: async () => mock as never,
+			edit: { ...baseEdit, submitUploadFromBytes, submit },
+		});
+
+		const result = await updateFileFromUrl.handle(
+			{
+				url: 'https://example.com/cat.jpg',
+				title: 'File:Cat.jpg',
+				license: 'Q124',
+				author: 'NASA',
+			},
+			ctx,
+		);
+
+		const text = assertStructuredSuccess(result);
+		expect(text).toContain('Image item ID: Q888');
+		expect(submit).toHaveBeenCalledWith(
+			mock,
+			expect.objectContaining({
+				action: 'imagefacts',
+				filename: 'File:Cat.jpg',
+				mode: 'update',
+				license: 'Q124',
+				author: 'NASA',
+			}),
+		);
+	});
 });

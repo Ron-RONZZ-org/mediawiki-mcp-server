@@ -51,6 +51,22 @@ function contextWith() {
 					},
 				});
 			}
+			if (params.action === 'imagefacts-fields') {
+				return Promise.resolve({
+					imagefactsfields: {
+						instanceOf: 'P1',
+						imageClasses: { image: 'Q488' },
+						imageProperties: {
+							image: 'P32',
+							license: 'P34',
+							imageAuthor: 'P61',
+							imageLicenseInfo: 'P62',
+						},
+						provenance: { sourceUrl: 'P7' },
+						licenses: { 'CC0 1.0': 'Q318', 'CC BY-SA 4.0': 'Q130' },
+					},
+				});
+			}
 			if (params.action === 'addspecialcontent-fields') {
 				return Promise.resolve({
 					contentfields: {
@@ -246,5 +262,28 @@ describe('embeddable-describe-entity-type', () => {
 
 	it('is annotated as read-only', () => {
 		expect(embeddableDescribeEntityType.annotations.readOnlyHint).toBe(true);
+	});
+
+	it('reports the image-facts vocabulary and the license label map', async () => {
+		const ctx = contextWith();
+
+		const result = await embeddableDescribeEntityType.handle(
+			toolArgs(embeddableDescribeEntityType, { kind: 'image-facts' }),
+			ctx,
+		);
+
+		const data = assertStructuredData(result);
+		expect(data.imageFacts.imageClasses.image).toBe('Q488');
+		expect(data.imageFacts.imageProperties).toEqual({
+			image: 'P32',
+			license: 'P34',
+			imageAuthor: 'P61',
+			imageLicenseInfo: 'P62',
+		});
+		expect(data.imageFacts.provenance.sourceUrl).toBe('P7');
+		expect(data.imageFacts.licenses['CC0 1.0']).toBe('Q318');
+		expect(data.specialContent).toBeUndefined();
+		expect(data.citationSource).toBeUndefined();
+		expect(data.semanticEntity).toBeUndefined();
 	});
 });
