@@ -71,18 +71,6 @@ describe('EditServiceImpl', () => {
 		expect(input).toEqual({ reason: 'spam' });
 	});
 
-	it('submitUpload injects tags into upload params', async () => {
-		const mock = createMockMwn({
-			upload: vi.fn().mockResolvedValue({ filename: 'F.png' }),
-		});
-		const edit = new EditServiceImpl(fakeActiveWiki('mcp-upload'));
-		await edit.submitUpload(mock as never, '/tmp/f', 'File:F.png', 'desc', { comment: 'c' });
-		expect(mock.upload).toHaveBeenCalledWith('/tmp/f', 'File:F.png', 'desc', {
-			comment: 'c',
-			tags: 'mcp-upload',
-		});
-	});
-
 	describe('botRight', () => {
 		it('returns true when userinfo rights include bot', async () => {
 			const mock = createMockMwn({

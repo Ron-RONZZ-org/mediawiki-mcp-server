@@ -135,6 +135,24 @@ describe('wrapMwnErrors', () => {
 		await expect(wrapped.request()).rejects.toThrow('fail with Bearer [REDACTED]');
 	});
 
+	it('passes through class-valued properties unchanged so their statics and constructors keep working', () => {
+		class Title {
+			public constructor(public readonly text: string) {}
+
+			static processNamespaceData(): string {
+				return 'namespaces';
+			}
+		}
+		const target = { Title };
+		const wrapped = wrapMwnErrors(target) as typeof target;
+
+		// mwn calls this.Title.processNamespaceData() after login; a wrapped class
+		// loses its statics and the relogin's token/siteinfo refresh fails.
+		expect(wrapped.Title).toBe(Title);
+		expect(wrapped.Title.processNamespaceData()).toBe('namespaces');
+		expect(new wrapped.Title('File:X').text).toBe('File:X');
+	});
+
 	it('passes through non-function property access unchanged', () => {
 		const target = {
 			cookieJar: null,

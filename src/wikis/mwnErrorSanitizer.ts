@@ -83,11 +83,20 @@ function wrapAsyncIterable<T>(
 	return wrapped;
 }
 
+// mwn exposes its per-instance Title/Page/File/... classes as own properties
+// (e.g. `this.Title = TitleFactory()`). Wrapping a class in a plain function
+// breaks its statics (`this.Title.processNamespaceData`) and `new`-construction,
+// which mwn relies on internally — so class-valued properties must pass through
+// untouched. Function.prototype.toString is the only reliable class test in JS.
+function isClassConstructor(value: Function): boolean {
+	return /^class[\s{]/.test(Function.prototype.toString.call(value));
+}
+
 export function wrapMwnErrors<T extends object>(target: T, token?: string): T {
 	return new Proxy(target, {
 		get(obj, prop, receiver): unknown {
 			const value = Reflect.get(obj, prop, receiver);
-			if (typeof value !== 'function') {
+			if (typeof value !== 'function' || isClassConstructor(value)) {
 				return value;
 			}
 			return function (this: unknown, ...args: unknown[]): unknown {

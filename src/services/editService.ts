@@ -7,16 +7,7 @@ export interface EditService {
 	/** Wraps mwn.request with CSRF + tag injection + formatversion=2. For action:edit and similar. */
 	submit(mwn: Mwn, params: Record<string, unknown>): Promise<unknown>;
 
-	/** Wraps mwn.upload with tag injection. CSRF is handled inside mwn.upload. */
-	submitUpload(
-		mwn: Mwn,
-		filepath: string,
-		title: string,
-		text: string,
-		params: ApiUploadParams,
-	): Promise<ApiUploadResponse>;
-
-	/** Uploads in-memory bytes via a multipart action=upload — parallel to submitUpload but without a local filepath. Injects CSRF token, tags, and ignorewarnings. The bytes are passed to form-data as a Buffer (a plain Readable has no length and form-data rejects it with "Unknown stream"). */
+	/** Uploads in-memory bytes via a multipart action=upload. Injects a freshly fetched CSRF token, tags, and ignorewarnings. The bytes are passed to form-data as a Buffer (a plain Readable has no length and form-data rejects it with "Unknown stream", and a consumed Readable cannot be replayed when mwn retries the request). */
 	submitUploadFromBytes(
 		mwn: Mwn,
 		data: Buffer,
@@ -85,21 +76,6 @@ export class EditServiceImpl implements EditService {
 		}
 		// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- mwn ApiParams shape; we assemble fullParams to match the typed contract
 		return mwn.request(fullParams as ApiParams);
-	}
-
-	public async submitUpload(
-		mwn: Mwn,
-		filepath: string,
-		title: string,
-		text: string,
-		params: ApiUploadParams,
-	): Promise<ApiUploadResponse> {
-		const tags = this.activeWiki.get().config.tags;
-		const fullParams: ApiUploadParams = { ...params };
-		if (tags !== null && tags !== undefined) {
-			fullParams.tags = tags;
-		}
-		return mwn.upload(filepath, title, text, fullParams);
 	}
 
 	public async submitUploadFromBytes(
