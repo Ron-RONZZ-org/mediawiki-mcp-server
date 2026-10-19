@@ -5,6 +5,7 @@ import type { ApiUploadResponse } from 'mwn';
 import type { Tool } from '../runtime/tool.ts';
 import type { ToolContext } from '../runtime/context.ts';
 import { assertAllowedPath, UploadValidationError } from '../transport/uploadGuard.ts';
+import { readUploadBytes } from '../transport/uploadBytes.ts';
 import { assertFileExists, FileNotFoundError } from '../transport/fileExistence.ts';
 import { formatEditComment, buildPageUrl } from '../wikis/utils.ts';
 import {
@@ -114,8 +115,10 @@ export const updateFile: Tool<typeof inputSchema> = {
 			return ctx.format.invalidInput('filepath is required unless factsOnly=true.');
 		}
 		let resolvedPath: string;
+		let bytes: Buffer;
 		try {
 			resolvedPath = await assertAllowedPath(filepath, ctx.uploadDirs.list());
+			bytes = await readUploadBytes(resolvedPath);
 		} catch (error) {
 			if (error instanceof UploadValidationError) {
 				return ctx.format.invalidInput(`Failed to update file: ${error.message}`);
@@ -132,9 +135,10 @@ export const updateFile: Tool<typeof inputSchema> = {
 			comment: formatEditComment(ctx, 'update-file', comment),
 			ignorewarnings: true,
 		};
-		const data: ApiUploadResponse = await ctx.edit.submitUpload(
+		const data: ApiUploadResponse = await ctx.edit.submitUploadFromBytes(
 			mwn,
-			resolvedPath,
+			bytes,
+			title.replace(/^File:/, ''),
 			title,
 			'',
 			params,

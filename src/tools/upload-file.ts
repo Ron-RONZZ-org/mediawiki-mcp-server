@@ -5,6 +5,7 @@ import type { ApiUploadResponse } from 'mwn';
 import type { Tool } from '../runtime/tool.ts';
 import type { ToolContext } from '../runtime/context.ts';
 import { assertAllowedPath, UploadValidationError } from '../transport/uploadGuard.ts';
+import { readUploadBytes } from '../transport/uploadBytes.ts';
 import { formatEditComment, buildPageUrl } from '../wikis/utils.ts';
 import {
 	imageFactsSchema,
@@ -41,8 +42,10 @@ export const uploadFile: Tool<typeof inputSchema> = {
 		ctx: ToolContext,
 	): Promise<CallToolResult> {
 		let resolvedPath: string;
+		let bytes: Buffer;
 		try {
 			resolvedPath = await assertAllowedPath(filepath, ctx.uploadDirs.list());
+			bytes = await readUploadBytes(resolvedPath);
 		} catch (error) {
 			if (error instanceof UploadValidationError) {
 				return ctx.format.invalidInput(`Failed to upload file: ${error.message}`);
@@ -54,9 +57,10 @@ export const uploadFile: Tool<typeof inputSchema> = {
 		const params: ApiUploadParams = {
 			comment: formatEditComment(ctx, 'upload-file', comment),
 		};
-		const data: ApiUploadResponse = await ctx.edit.submitUpload(
+		const data: ApiUploadResponse = await ctx.edit.submitUploadFromBytes(
 			mwn,
-			resolvedPath,
+			bytes,
+			title.replace(/^File:/, ''),
 			title,
 			text,
 			params,

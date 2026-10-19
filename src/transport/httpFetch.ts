@@ -40,7 +40,7 @@ const FETCH_TIMEOUT_MS = 30_000;
 // update-file-from-url. Guards THIS server's memory; the wiki's own
 // $wgMaxUploadSize is separate. Over-cap is not fatal — the tools route to
 // wiki-side copy-upload instead.
-function resolveUploadMaxBytes(): number {
+export function resolveUploadMaxBytes(): number {
 	const raw = process.env.MCP_UPLOAD_MAX_BYTES;
 	if (raw === undefined || raw === '') {
 		return DEFAULT_UPLOAD_MAX_BYTES;

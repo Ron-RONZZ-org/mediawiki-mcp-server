@@ -23,7 +23,12 @@ vi.mock('../../src/transport/fileExistence.ts', async () => {
 	};
 });
 
+vi.mock('../../src/transport/uploadBytes.ts', () => ({
+	readUploadBytes: vi.fn(),
+}));
+
 import { assertAllowedPath, UploadValidationError } from '../../src/transport/uploadGuard.ts';
+import { readUploadBytes } from '../../src/transport/uploadBytes.ts';
 import { assertFileExists, FileNotFoundError } from '../../src/transport/fileExistence.ts';
 import { updateFile } from '../../src/tools/update-file.ts';
 import { dispatch } from '../../src/runtime/dispatcher.ts';
@@ -35,29 +40,30 @@ const baseEdit = fakeContext().edit;
 function ctxWith(
 	opts: {
 		mwn?: ReturnType<typeof createMockMwn>;
-		submitUpload?: Mock;
+		submitUploadFromBytes?: Mock;
 	} = {},
 ) {
 	const mwn = opts.mwn ?? createMockMwn();
-	const submitUpload = opts.submitUpload ?? vi.fn();
+	const submitUploadFromBytes = opts.submitUploadFromBytes ?? vi.fn();
 	const ctx = fakeContext({
 		mwn: async () => mwn as never,
-		edit: { ...baseEdit, submitUpload },
+		edit: { ...baseEdit, submitUploadFromBytes },
 		uploadDirs: { list: () => ['/home/user/uploads'] },
 	});
-	return { mwn, submitUpload, ctx };
+	return { mwn, submitUploadFromBytes, ctx };
 }
 
 describe('update-file', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		vi.mocked(readUploadBytes).mockResolvedValue(Buffer.from('cat-bytes'));
 	});
 
 	it('returns invalid_input for UploadValidationError, skips pre-flight and upload', async () => {
 		vi.mocked(assertAllowedPath).mockRejectedValue(
 			new UploadValidationError('"/etc/passwd" is not allowed'),
 		);
-		const { submitUpload, ctx } = ctxWith();
+		const { submitUploadFromBytes, ctx } = ctxWith();
 
 		const result = await updateFile.handle(
 			{
@@ -70,12 +76,12 @@ describe('update-file', () => {
 		const envelope = assertStructuredError(result, 'invalid_input');
 		expect(envelope.message).toMatch(/Failed to update file:.*not allowed/);
 		expect(assertFileExists).not.toHaveBeenCalled();
-		expect(submitUpload).not.toHaveBeenCalled();
+		expect(submitUploadFromBytes).not.toHaveBeenCalled();
 	});
 
 	it('lets unexpected guard errors fall through to the dispatcher', async () => {
 		vi.mocked(assertAllowedPath).mockRejectedValue(new Error('Connection refused'));
-		const { submitUpload, ctx } = ctxWith();
+		const { submitUploadFromBytes, ctx } = ctxWith();
 
 		const result = await dispatch(
 			updateFile,
@@ -86,13 +92,13 @@ describe('update-file', () => {
 		});
 
 		assertStructuredError(result, 'upstream_failure');
-		expect(submitUpload).not.toHaveBeenCalled();
+		expect(submitUploadFromBytes).not.toHaveBeenCalled();
 	});
 
 	it('returns not_found with routing hint when the file does not exist', async () => {
 		vi.mocked(assertAllowedPath).mockResolvedValue('/var/lib/uploads/cat.jpg');
 		vi.mocked(assertFileExists).mockRejectedValue(new FileNotFoundError('Cat.jpg'));
-		const { submitUpload, ctx } = ctxWith();
+		const { submitUploadFromBytes, ctx } = ctxWith();
 
 		const result = await updateFile.handle(
 			{
@@ -105,13 +111,13 @@ describe('update-file', () => {
 		const envelope = assertStructuredError(result, 'not_found');
 		expect(envelope.message).toMatch(/Cat\.jpg/);
 		expect(envelope.message).toMatch(/upload-file\b/);
-		expect(submitUpload).not.toHaveBeenCalled();
+		expect(submitUploadFromBytes).not.toHaveBeenCalled();
 	});
 
-	it('calls submitUpload with ignorewarnings: true and the formatted comment', async () => {
+	it('calls submitUploadFromBytes with ignorewarnings: true and the formatted comment', async () => {
 		vi.mocked(assertAllowedPath).mockResolvedValue('/var/lib/uploads/cat.jpg');
 		vi.mocked(assertFileExists).mockResolvedValue(undefined);
-		const submitUpload = vi.fn().mockResolvedValue({
+		const submitUploadFromBytes = vi.fn().mockResolvedValue({
 			result: 'Success',
 			filename: 'Cat.jpg',
 			imageinfo: {
@@ -119,7 +125,7 @@ describe('update-file', () => {
 				url: 'https://test.wiki/images/Cat.jpg',
 			},
 		});
-		const { mwn, ctx } = ctxWith({ submitUpload });
+		const { mwn, ctx } = ctxWith({ submitUploadFromBytes });
 
 		await updateFile.handle(
 			{
@@ -130,9 +136,10 @@ describe('update-file', () => {
 			ctx,
 		);
 
-		expect(submitUpload).toHaveBeenCalledWith(
+		expect(submitUploadFromBytes).toHaveBeenCalledWith(
 			mwn,
-			'/var/lib/uploads/cat.jpg',
+			Buffer.from('cat-bytes'),
+			'Cat.jpg',
 			'File:Cat.jpg',
 			'',
 			expect.objectContaining({
@@ -145,7 +152,7 @@ describe('update-file', () => {
 	it('returns the same structured payload as upload-file on success', async () => {
 		vi.mocked(assertAllowedPath).mockResolvedValue('/var/lib/uploads/cat.jpg');
 		vi.mocked(assertFileExists).mockResolvedValue(undefined);
-		const submitUpload = vi.fn().mockResolvedValue({
+		const submitUploadFromBytes = vi.fn().mockResolvedValue({
 			result: 'Success',
 			filename: 'Cat.jpg',
 			imageinfo: {
@@ -153,7 +160,7 @@ describe('update-file', () => {
 				url: 'https://test.wiki/images/Cat.jpg',
 			},
 		});
-		const { ctx } = ctxWith({ submitUpload });
+		const { ctx } = ctxWith({ submitUploadFromBytes });
 
 		const result = await updateFile.handle(
 			{
@@ -172,8 +179,8 @@ describe('update-file', () => {
 	it('dispatches generic upstream errors with the standard verb prefix', async () => {
 		vi.mocked(assertAllowedPath).mockResolvedValue('/var/lib/uploads/cat.jpg');
 		vi.mocked(assertFileExists).mockResolvedValue(undefined);
-		const submitUpload = vi.fn().mockRejectedValue(new Error('Boom'));
-		const { ctx } = ctxWith({ submitUpload });
+		const submitUploadFromBytes = vi.fn().mockRejectedValue(new Error('Boom'));
+		const { ctx } = ctxWith({ submitUploadFromBytes });
 
 		const result = await dispatch(
 			updateFile,
@@ -191,8 +198,8 @@ describe('update-file', () => {
 		vi.mocked(assertAllowedPath).mockResolvedValue('/var/lib/uploads/cat.jpg');
 		vi.mocked(assertFileExists).mockResolvedValue(undefined);
 		const err = Object.assign(new Error('You cannot reupload'), { code: 'permissiondenied' });
-		const submitUpload = vi.fn().mockRejectedValue(err);
-		const { ctx } = ctxWith({ submitUpload });
+		const submitUploadFromBytes = vi.fn().mockRejectedValue(err);
+		const { ctx } = ctxWith({ submitUploadFromBytes });
 
 		const result = await dispatch(
 			updateFile,
@@ -208,8 +215,8 @@ describe('update-file', () => {
 	it('forwards ctx.uploadDirs.list() to the path guard', async () => {
 		vi.mocked(assertAllowedPath).mockResolvedValue('/home/user/uploads/x.jpg');
 		vi.mocked(assertFileExists).mockResolvedValue(undefined);
-		const submitUpload = vi.fn().mockResolvedValue({ result: 'Success' });
-		const { ctx } = ctxWith({ submitUpload });
+		const submitUploadFromBytes = vi.fn().mockResolvedValue({ result: 'Success' });
+		const { ctx } = ctxWith({ submitUploadFromBytes });
 
 		await updateFile.handle(
 			{
@@ -227,16 +234,16 @@ describe('update-file', () => {
 	it('updates semantic image facts with mode=update', async () => {
 		vi.mocked(assertAllowedPath).mockResolvedValue('/var/lib/uploads/cat.jpg');
 		vi.mocked(assertFileExists).mockResolvedValue(undefined);
-		const submitUpload = vi.fn().mockResolvedValue({
+		const submitUploadFromBytes = vi.fn().mockResolvedValue({
 			result: 'Success',
 			filename: 'Cat.jpg',
 			imageinfo: { descriptionurl: 'https://test.wiki/wiki/File:Cat.jpg' },
 		});
 		const submit = vi.fn().mockResolvedValue({ imagefacts: { itemId: 'Q999' } });
-		const { mwn } = ctxWith({ submitUpload });
+		const { mwn } = ctxWith({ submitUploadFromBytes });
 		const ctxWithFacts = fakeContext({
 			mwn: async () => mwn as never,
-			edit: { ...baseEdit, submitUpload, submit },
+			edit: { ...baseEdit, submitUploadFromBytes, submit },
 			uploadDirs: { list: () => ['/home/user/uploads'] },
 		});
 
@@ -267,12 +274,12 @@ describe('update-file', () => {
 	it('does not call imagefacts when updating without facts', async () => {
 		vi.mocked(assertAllowedPath).mockResolvedValue('/var/lib/uploads/cat.jpg');
 		vi.mocked(assertFileExists).mockResolvedValue(undefined);
-		const submitUpload = vi.fn().mockResolvedValue({ result: 'Success' });
+		const submitUploadFromBytes = vi.fn().mockResolvedValue({ result: 'Success' });
 		const submit = vi.fn();
-		const { mwn } = ctxWith({ submitUpload });
+		const { mwn } = ctxWith({ submitUploadFromBytes });
 		const ctxWithSubmit = fakeContext({
 			mwn: async () => mwn as never,
-			edit: { ...baseEdit, submitUpload, submit },
+			edit: { ...baseEdit, submitUploadFromBytes, submit },
 			uploadDirs: { list: () => ['/home/user/uploads'] },
 		});
 
@@ -286,12 +293,12 @@ describe('update-file', () => {
 
 	it('factsOnly updates facts without touching filepath or uploading bytes', async () => {
 		vi.mocked(assertFileExists).mockResolvedValue(undefined);
-		const submitUpload = vi.fn();
+		const submitUploadFromBytes = vi.fn();
 		const submit = vi.fn().mockResolvedValue({ imagefacts: { itemId: 'Q999' } });
 		const mwn = createMockMwn();
 		const ctx = fakeContext({
 			mwn: async () => mwn as never,
-			edit: { ...baseEdit, submitUpload, submit },
+			edit: { ...baseEdit, submitUploadFromBytes, submit },
 		});
 
 		const result = await updateFile.handle(
@@ -308,7 +315,7 @@ describe('update-file', () => {
 		expect(text).toContain('Image item ID: Q999');
 		expect(text).toContain('Facts only: true');
 		expect(assertAllowedPath).not.toHaveBeenCalled();
-		expect(submitUpload).not.toHaveBeenCalled();
+		expect(submitUploadFromBytes).not.toHaveBeenCalled();
 		expect(submit).toHaveBeenCalledWith(
 			mwn,
 			expect.objectContaining({
@@ -326,7 +333,7 @@ describe('update-file', () => {
 		const submit = vi.fn();
 		const ctx = fakeContext({
 			mwn: async () => createMockMwn() as never,
-			edit: { ...baseEdit, submitUpload: vi.fn(), submit },
+			edit: { ...baseEdit, submitUploadFromBytes: vi.fn(), submit },
 		});
 
 		const result = await updateFile.handle({ title: 'File:Cat.jpg', factsOnly: true }, ctx);
@@ -338,12 +345,12 @@ describe('update-file', () => {
 
 	it('sends an explicit clear list with mode=update', async () => {
 		vi.mocked(assertFileExists).mockResolvedValue(undefined);
-		const submitUpload = vi.fn();
+		const submitUploadFromBytes = vi.fn();
 		const submit = vi.fn().mockResolvedValue({ imagefacts: { itemId: 'Q999' } });
 		const mwn = createMockMwn();
 		const ctx = fakeContext({
 			mwn: async () => mwn as never,
-			edit: { ...baseEdit, submitUpload, submit },
+			edit: { ...baseEdit, submitUploadFromBytes, submit },
 		});
 
 		await updateFile.handle(
@@ -359,6 +366,6 @@ describe('update-file', () => {
 				clear: 'licenseInfo,sourceUrl',
 			}),
 		);
-		expect(submitUpload).not.toHaveBeenCalled();
+		expect(submitUploadFromBytes).not.toHaveBeenCalled();
 	});
 });
