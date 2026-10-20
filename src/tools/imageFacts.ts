@@ -38,7 +38,9 @@ export const imageFactsSchema = {
 		.string()
 		.url()
 		.optional()
-		.describe('Source URL of the original file (provenance statement).'),
+		.describe(
+			'URL where the original file was found (external provenance: web page, repository, or File page). Omit for work you created yourself — the File: page is the origin.',
+		),
 } as const;
 
 export type ImageFactsClearField = 'license' | 'author' | 'licenseInfo' | 'sourceUrl';
