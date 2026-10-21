@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { Resvg } from '@resvg/resvg-js';
 import { extractText, getDocumentProxy } from 'unpdf';
 import type { CallToolResult, ImageContent, TextContent } from '@modelcontextprotocol/server';
 import type { ApiPage, ImageInfo } from 'mwn';
@@ -15,6 +14,7 @@ import {
 	selectForms,
 	sourceUrlFor,
 } from './fileContent.ts';
+import { rasteriseSvg } from './svgRender.ts';
 
 const DEFAULT_IMAGE_WIDTH = 1024;
 const MAX_WIDTH = 1568;
@@ -34,22 +34,6 @@ function resolveFileDataMaxBytes(): number {
 		return DEFAULT_FILE_DATA_MAX_BYTES;
 	}
 	return parsed;
-}
-
-function rasteriseSvg(
-	bytes: Buffer,
-	width: number,
-): { png: Buffer; width: number; height: number } {
-	const resvg = new Resvg(bytes, {
-		fitTo: { mode: 'width', value: width },
-		font: { loadSystemFonts: true, defaultFontFamily: 'DejaVu Serif' },
-	});
-	const rendered = resvg.render();
-	return {
-		png: Buffer.from(rendered.asPng()),
-		width: rendered.width,
-		height: rendered.height,
-	};
 }
 
 async function extractPdfText(bytes: Buffer): Promise<{ text: string; pages: number }> {
