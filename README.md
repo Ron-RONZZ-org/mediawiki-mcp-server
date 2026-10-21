@@ -17,6 +17,8 @@ Every tool that operates on a wiki accepts an optional `wiki` argument naming th
 | `get-category-members` | List members of a category (up to 500 per call, paginated via `continueFrom`). |
 | `get-file-info` | Fetch a file's metadata (uploader, timestamp, size, MIME, URL, thumbnail) and `contentFormats` — the forms `get-file-content` can return for it (`image`, `source`, or both). |
 | `get-file-content` | Fetch a file's content for model consumption. Omit `format` for automatic behaviour: raster images and SVG return image blocks, text-like files and PDFs return text. `format=image` requests a raster (SVG is rendered to PNG); `format=source` returns decoded SVG XML, text, or extracted PDF text; `format=both` returns every form the file supports. Non-renderable types (audio, video, binaries) error and point to `get-file-info`. |
+| `get-file` (deprecated) | Compatibility alias of `get-file-info`; new calls should use `get-file-info`. |
+| `get-file-data` (deprecated) | Compatibility alias of `get-file-content` with the old `image`/`text` interface; new calls should use `get-file-content`. |
 | `get-links-here` | List pages that reference a wiki page — pages that link to it, embed it as a template, or display it as a file (select via `type`), including pages that reach it through a redirect. Up to 500 per call, paginated via `continueFrom`. |
 | `get-page` | Fetch a wiki page. |
 | `get-page-history` | List recent revisions of a wiki page. |

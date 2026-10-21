@@ -17,6 +17,8 @@ import { parseWikitext } from './parse-wikitext.ts';
 import { comparePages } from './compare-pages.ts';
 import { getFileInfo } from './get-file-info.ts';
 import { getFileContent } from './get-file-content.ts';
+import { getFile } from './get-file.ts';
+import { getFileData } from './get-file-data.ts';
 import { getRevision } from './get-revision.ts';
 import { getSiteInfo } from './get-site-info.ts';
 import { getCategoryMembers } from './get-category-members.ts';
@@ -55,6 +57,9 @@ const standardTools: Tool<any>[] = [
 	comparePages,
 	getFileInfo,
 	getFileContent,
+	// Deprecated aliases; removed in a future major release.
+	getFile,
+	getFileData,
 	getRevision,
 	getSiteInfo,
 	getCategoryMembers,
