@@ -33,6 +33,12 @@ Every tool that operates on a wiki accepts an optional `wiki` argument naming th
 | `search-page-by-prefix` | Search page titles by prefix (namespace-style prefixes like `RonzzIT:` are resolved). |
 | `whoami` | Report the identity the current session is authenticated as on the targeted wiki — username, whether it is anonymous, and group memberships (optionally user rights). |
 
+#### SVG rendering
+
+| Name | Description |
+|---|---|
+| `render-svg` | Rasterise SVG source to a PNG server-side, without reading or writing a wiki. Returns the rendered image block plus the rendered dimensions and the declared aspect ratio. Use it to inspect a generated figure (diagram, chart) before presenting or uploading it. Input is capped at 2 MB and 4096 px of rendered height. |
+
 #### Page writes
 
 | Name | Description | Permissions |
