@@ -15,6 +15,8 @@ import { searchPage } from './search-page.ts';
 import { searchPageByPrefix } from './search-page-by-prefix.ts';
 import { parseWikitext } from './parse-wikitext.ts';
 import { comparePages } from './compare-pages.ts';
+import { getFileInfo } from './get-file-info.ts';
+import { getFileContent } from './get-file-content.ts';
 import { getFile } from './get-file.ts';
 import { getFileData } from './get-file-data.ts';
 import { getRevision } from './get-revision.ts';
@@ -53,6 +55,9 @@ const standardTools: Tool<any>[] = [
 	searchPageByPrefix,
 	parseWikitext,
 	comparePages,
+	getFileInfo,
+	getFileContent,
+	// Deprecated aliases; removed in a future major release.
 	getFile,
 	getFileData,
 	getRevision,
