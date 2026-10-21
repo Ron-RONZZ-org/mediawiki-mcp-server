@@ -206,7 +206,7 @@ Use these exact terms in descriptions and parameter docs. Do not introduce synon
 File titles are page titles in the File namespace. The distinction surfaces at the parameter level:
 
 - For tools operating on any page (including file pages): use `"Wiki page title"` in the parameter description.
-- For tools operating specifically on file pages (`get-file`, `upload-file`, `upload-file-from-url`): use `"File title"` in the parameter description for clarity.
+- For tools operating specifically on file pages (`get-file-info`, `upload-file`, `upload-file-from-url`): use `"File title"` in the parameter description for clarity.
 
 Do not interchange these.
 

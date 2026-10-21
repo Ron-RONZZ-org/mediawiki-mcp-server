@@ -35,7 +35,7 @@
         },
         {
           "name": "MCP_FILE_DATA_MAX_BYTES",
-          "description": "Hard cap on the base64-encoded size of a get-file-data response. A transport/safety backstop; callers tune actual size with the tool's width parameter. Over-cap responses error rather than truncate.",
+          "description": "Hard cap on the base64-encoded size of a get-file-content image response. A transport/safety backstop; callers tune actual size with the tool's width parameter. Over-cap responses error rather than truncate.",
           "format": "number",
           "default": "1000000"
         },
@@ -146,7 +146,7 @@
         },
         {
           "name": "MCP_FILE_DATA_MAX_BYTES",
-          "description": "Hard cap on the base64-encoded size of a get-file-data response. A transport/safety backstop; callers tune actual size with the tool's width parameter. Over-cap responses error rather than truncate.",
+          "description": "Hard cap on the base64-encoded size of a get-file-content image response. A transport/safety backstop; callers tune actual size with the tool's width parameter. Over-cap responses error rather than truncate.",
           "format": "number",
           "default": "1000000"
         },

@@ -37,6 +37,9 @@ COPY server.json ./
 # Install only production dependencies
 RUN npm ci --omit=dev --ignore-scripts
 
+# SVG rasterisation needs fonts; without them, text in a rendered SVG disappears.
+RUN apk add --no-cache font-dejavu
+
 # Use a non-root user for security
 RUN addgroup -S nodejs \
 	&& adduser -S -G nodejs nodejs \

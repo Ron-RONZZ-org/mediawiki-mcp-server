@@ -15,8 +15,8 @@ import { searchPage } from './search-page.ts';
 import { searchPageByPrefix } from './search-page-by-prefix.ts';
 import { parseWikitext } from './parse-wikitext.ts';
 import { comparePages } from './compare-pages.ts';
-import { getFile } from './get-file.ts';
-import { getFileData } from './get-file-data.ts';
+import { getFileInfo } from './get-file-info.ts';
+import { getFileContent } from './get-file-content.ts';
 import { getRevision } from './get-revision.ts';
 import { getSiteInfo } from './get-site-info.ts';
 import { getCategoryMembers } from './get-category-members.ts';
@@ -53,8 +53,8 @@ const standardTools: Tool<any>[] = [
 	searchPageByPrefix,
 	parseWikitext,
 	comparePages,
-	getFile,
-	getFileData,
+	getFileInfo,
+	getFileContent,
 	getRevision,
 	getSiteInfo,
 	getCategoryMembers,

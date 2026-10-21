@@ -3,18 +3,19 @@ import type { CallToolResult } from '@modelcontextprotocol/server';
 import type { ApiPage, ImageInfo } from 'mwn';
 import type { Tool } from '../runtime/tool.ts';
 import type { ToolContext } from '../runtime/context.ts';
+import { contentFormatsFor } from './fileContent.ts';
 
 const inputSchema = {
 	title: z.string().describe('File title (with or without the "File:" prefix)'),
 } as const;
 
-export const getFile: Tool<typeof inputSchema> = {
-	name: 'get-file',
+export const getFileInfo: Tool<typeof inputSchema> = {
+	name: 'get-file-info',
 	description:
-		'Returns metadata for a file (uploader, timestamp, size, MIME type) along with download URLs for the thumbnail, preview, and original. The File: prefix is added automatically if omitted.',
+		'Returns metadata for a file (uploader, timestamp, size, MIME type, content forms) along with download URLs for the thumbnail, preview, and original. contentFormats lists the forms get-file-content can return for this file: "image" (a raster the model can view), "source" (decoded SVG/text/PDF text), or both. The File: prefix is added automatically if omitted.',
 	inputSchema,
 	annotations: {
-		title: 'Get file',
+		title: 'Get file info',
 		readOnlyHint: true,
 		destructiveHint: false,
 		idempotentHint: true,
@@ -59,6 +60,7 @@ export const getFile: Tool<typeof inputSchema> = {
 			mime: info.mime,
 			url: info.url,
 			thumbnailUrl: (info as ImageInfo & { thumburl?: string }).thumburl,
+			contentFormats: contentFormatsFor(info.mime),
 		});
 	},
 };
