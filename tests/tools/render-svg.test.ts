@@ -1,3 +1,6 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import type { ImageContent, TextContent } from '@modelcontextprotocol/server';
 import { renderSvg } from '../../src/tools/render-svg.ts';
@@ -96,5 +99,52 @@ describe('svgAspectRatio', () => {
 		expect(svgAspectRatio('<svg></svg>')).toBeUndefined();
 		expect(svgAspectRatio('no svg here')).toBeUndefined();
 		expect(svgAspectRatio('<svg viewBox="0 0 0 10"></svg>')).toBeUndefined();
+	});
+
+	it('renders an SVG file from an allowed directory', async () => {
+		const dir = await mkdtemp(join(tmpdir(), 'render-svg-'));
+		const file = join(dir, 'figure.svg');
+		await writeFile(file, SIMPLE_SVG, 'utf8');
+		try {
+			const result = await dispatch(
+				renderSvg,
+				fakeContext({ uploadDirs: { list: () => [dir] } }),
+			)({ path: file } as never);
+
+			expect(result.isError).toBeUndefined();
+			const image = result.content[1] as ImageContent;
+			const bytes = Buffer.from(image.data, 'base64');
+			expect(bytes.subarray(0, 8).equals(PNG_SIGNATURE)).toBe(true);
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
+
+	it('rejects a path outside the allowed upload directories', async () => {
+		const dir = await mkdtemp(join(tmpdir(), 'render-svg-'));
+		const file = join(dir, 'figure.svg');
+		await writeFile(file, SIMPLE_SVG, 'utf8');
+		try {
+			const result = await dispatch(
+				renderSvg,
+				fakeContext({ uploadDirs: { list: () => [join(dir, 'other')] } }),
+			)({ path: file } as never);
+
+			expect(result.isError).toBe(true);
+			const caption = result.content[0] as TextContent;
+			expect(caption.text).toContain('outside the allowed upload directories');
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
+
+	it('requires exactly one of svg or path', async () => {
+		const neither = await run({});
+		expect(neither.isError).toBe(true);
+		expect((neither.content[0] as TextContent).text).toContain('exactly one of svg');
+
+		const both = await run({ svg: SIMPLE_SVG, path: '/tmp/x.svg' });
+		expect(both.isError).toBe(true);
+		expect((both.content[0] as TextContent).text).toContain('exactly one of svg');
 	});
 });
