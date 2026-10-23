@@ -477,6 +477,108 @@ describe('update-page', () => {
 		});
 	});
 
+	describe('heading guard', () => {
+		// The incident this guard was written for: a section replace whose source
+		// carried the body but not the heading. MediaWiki splices the source in
+		// place of the heading and its subtree, so the heading was deleted.
+		it('refuses a section replace whose source does not begin with the heading', async () => {
+			const { submit, ctx } = fakeEditWithOutline(JAPAN_OUTLINE, []);
+
+			const result = await callTool(ctx, 'update-page', {
+				title: 'Japan',
+				source: 'Rewritten.',
+				section: 2,
+			});
+
+			const envelope = assertStructuredError(result, 'invalid_input');
+			expect(envelope.message).toContain('does not begin with a heading');
+			expect(envelope.message).toContain('heading would be deleted');
+			expect(submit).not.toHaveBeenCalled();
+		});
+
+		it('refuses a source that puts text before the heading', async () => {
+			const { submit, ctx } = fakeEditWithOutline(JAPAN_OUTLINE, [
+				{ index: '1', level: 2, line: 'History', editable: true, byteOffset: 8 },
+			]);
+
+			const result = await callTool(ctx, 'update-page', {
+				title: 'Japan',
+				source: 'Intro.\n\n== History ==\nRewritten.',
+				section: 2,
+			});
+
+			const envelope = assertStructuredError(result, 'invalid_input');
+			expect(envelope.message).toContain('does not begin with a heading');
+			expect(submit).not.toHaveBeenCalled();
+		});
+
+		it('allows a rename that keeps the heading at the same level', async () => {
+			const { submit, ctx } = fakeEditWithOutline(JAPAN_OUTLINE, [
+				{ index: '1', level: 2, line: 'Origins', editable: true, byteOffset: 0 },
+			]);
+
+			const result = await callTool(ctx, 'update-page', {
+				title: 'Japan',
+				source: '== Origins ==\nRewritten.',
+				section: 1,
+			});
+
+			assertStructuredSuccess(result);
+			expect(submit).toHaveBeenCalledTimes(1);
+		});
+
+		// The second half of the incident: a source ending with a new
+		// `== References ==` left the original References heading in place.
+		it('refuses a source that introduces a second heading at the section level', async () => {
+			const { submit, ctx } = fakeEditWithOutline(JAPAN_OUTLINE, [
+				{ index: '1', level: 2, line: 'History', editable: true, byteOffset: 0 },
+				{ index: '2', level: 2, line: 'References', editable: true, byteOffset: 30 },
+			]);
+
+			const result = await callTool(ctx, 'update-page', {
+				title: 'Japan',
+				source: '== History ==\nRewritten.\n\n== References ==\n<references/>',
+				section: 2,
+			});
+
+			const envelope = assertStructuredError(result, 'invalid_input');
+			expect(envelope.message).toContain('duplicate a sibling section');
+			expect(envelope.message).toContain('References');
+			expect(submit).not.toHaveBeenCalled();
+		});
+
+		it('does not waive the heading check for removeSubsections', async () => {
+			const { submit, ctx } = fakeEditWithOutline(JAPAN_OUTLINE, []);
+
+			const result = await callTool(ctx, 'update-page', {
+				title: 'Japan',
+				source: 'Rewritten.',
+				section: 2,
+				removeSubsections: true,
+			});
+
+			assertStructuredError(result, 'invalid_input');
+			expect(submit).not.toHaveBeenCalled();
+		});
+
+		it('leaves the lead and delta modes alone', async () => {
+			const lead = await callTool(fakeEdit().ctx, 'update-page', {
+				title: 'Japan',
+				source: 'New lead.',
+				section: 0,
+			});
+			assertStructuredSuccess(lead);
+
+			const delta = await callTool(fakeEdit().ctx, 'update-page', {
+				title: 'Japan',
+				source: '\n* row',
+				section: 2,
+				mode: 'append',
+			});
+			assertStructuredSuccess(delta);
+		});
+	});
+
 	describe('subsection guard', () => {
 		it('refuses a replace that would drop the subsections, naming them', async () => {
 			const { submit, ctx, listInSource } = fakeEditWithOutline(JAPAN_OUTLINE, [
@@ -562,7 +664,9 @@ describe('update-page', () => {
 		});
 
 		it('allows the destructive replace when removeSubsections is set', async () => {
-			const { submit, ctx } = fakeEditWithOutline();
+			const { submit, ctx } = fakeEditWithOutline(JAPAN_OUTLINE, [
+				{ index: '1', level: 2, line: 'History', editable: true, byteOffset: 0 },
+			]);
 
 			const result = await callTool(ctx, 'update-page', {
 				title: 'Japan',
@@ -575,8 +679,10 @@ describe('update-page', () => {
 			expect(submit).toHaveBeenCalledTimes(1);
 		});
 
-		it('does not guard a section that has no subsections', async () => {
-			const { submit, ctx, listInSource } = fakeEditWithOutline();
+		it('allows a replace of a section that has no subsections', async () => {
+			const { submit, ctx, listInSource } = fakeEditWithOutline(JAPAN_OUTLINE, [
+				{ index: '1', level: 2, line: 'Etymology', editable: true, byteOffset: 0 },
+			]);
 
 			const result = await callTool(ctx, 'update-page', {
 				title: 'Japan',
@@ -586,9 +692,9 @@ describe('update-page', () => {
 
 			assertStructuredSuccess(result);
 			expect(submit).toHaveBeenCalledTimes(1);
-			// The source parse is the guard's second request; a leaf section must
-			// not pay for it.
-			expect(listInSource).not.toHaveBeenCalled();
+			// The heading check always parses the source; the child guard then
+			// finds nothing to protect.
+			expect(listInSource).toHaveBeenCalledTimes(1);
 		});
 
 		// A transcluded heading can never appear as an `=` run in the host page's
@@ -602,7 +708,9 @@ describe('update-page', () => {
 				{ index: 'T-2', level: 3, line: 'Candidate B', editable: false },
 				{ index: '2', level: 2, line: 'Closed', editable: true },
 			];
-			const { submit, ctx, listInSource } = fakeEditWithOutline(outline);
+			const { submit, ctx, listInSource } = fakeEditWithOutline(outline, [
+				{ index: '1', level: 2, line: 'Nominations', editable: true, byteOffset: 0 },
+			]);
 
 			const result = await callTool(ctx, 'update-page', {
 				title: 'Wikipedia:Requests for adminship',
@@ -612,7 +720,7 @@ describe('update-page', () => {
 
 			assertStructuredSuccess(result);
 			expect(submit).toHaveBeenCalledTimes(1);
-			expect(listInSource).not.toHaveBeenCalled();
+			expect(listInSource).toHaveBeenCalledTimes(1);
 		});
 
 		it('guards on an editable child only, naming just that child, when a sibling child is transcluded', async () => {

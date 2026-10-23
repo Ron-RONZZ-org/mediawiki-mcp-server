@@ -27,7 +27,7 @@ const inputSchema = {
 	source: z
 		.string()
 		.describe(
-			'The content to write, in the existing page\'s content model. Interpreted as the full page by default; as the given section\'s content when section is set; or as a delta (appended or prepended) when mode is set. An appended source that opens a new section must begin on its own line, as in "\\n\\n== History ==\\n\\nBody."; without the leading newline the heading runs on from the last line of the page and is not recognised as a heading.',
+			"The content to write, in the existing page's content model. Interpreted as the full page by default; as the given section's content when section is set; or as a delta (appended or prepended) when mode is set. A section replace includes the section heading: begin the source with that heading (get-page with section set returns it), or with a new heading at the same level to rename the section. A source that does not open with a heading at the section's level is refused, because it would delete the heading. An appended source that opens a new section must begin on its own line, as in \"\\n\\n== History ==\\n\\nBody.\"; without the leading newline the heading runs on from the last line of the page and is not recognised as a heading.",
 		),
 	latestId: z
 		.number()
@@ -46,7 +46,7 @@ const inputSchema = {
 		.nonnegative()
 		.optional()
 		.describe(
-			"Section number (0 = lead; 1..N = heading sections). Replaces that section's content, along with every subsection nested under it; see removeSubsections.",
+			'Section number (0 = lead; 1..N = heading sections). Replaces that section including its heading, along with every subsection nested under it; see removeSubsections.',
 		),
 	mode: z
 		.enum(['append', 'prepend'])
@@ -64,7 +64,7 @@ const inputSchema = {
 		.boolean()
 		.optional()
 		.describe(
-			'Confirms that replacing this section is meant to remove the subsections nested under it. Required only when section is set and source contains fewer subsection headings than the section currently has.',
+			'Confirms that replacing this section is meant to remove the subsections nested under it. Required only when section is set and source contains fewer subsection headings than the section currently has. It does not waive the heading checks: the source must still begin with the section heading and must not introduce a sibling heading.',
 		),
 } as const;
 
@@ -89,27 +89,73 @@ function buildEditParams(
 	};
 }
 
-// Replacing a section replaces everything nested under it. A source that brings
-// the subsections back is not destructive; one that drops them deletes content
-// the caller may never have read. Both sides of the comparison are parsed by
-// the wiki itself, so what counts as a heading is decided once — a
-// heading-shaped line inside <nowiki> or a comment is not a section on either
-// side. Headings are counted rather than matched by text, so a rename passes.
-async function subsectionRemovalError(
+// Replacing a section replaces its heading and everything nested under it. Two
+// losses are possible, and both are refused:
+//
+// - a source that does not open with a heading at the section's level deletes
+//   the heading itself, because MediaWiki splices the source in place of the
+//   heading and its subtree;
+// - a source that carries a second heading at the section's level or higher
+//   places a sibling section inside the replacement, so the page ends up with
+//   two headings of the same name (the References duplicate in the incident
+//   this guard was written for).
+//
+// Both sides are parsed by the wiki itself, so what counts as a heading is
+// decided once — a heading-shaped line inside <nowiki> or a comment is not a
+// section on either side. Headings are counted rather than matched by text, so
+// a rename passes.
+//
+// Replacing a section also replaces the subsections nested under it. A source
+// that brings them back is not destructive; one that drops them deletes
+// content the caller may never have read.
+async function sectionReplaceError(
 	args: UpdatePageArgs,
 	ctx: ToolContext,
 	mwn: Mwn,
 ): Promise<string | undefined> {
-	const { section, source, mode, removeSubsections } = args;
-	if (section === undefined || mode !== undefined || removeSubsections === true) {
+	const { section, source, mode, removeSubsections, latestId } = args;
+	if (section === undefined || mode !== undefined) {
 		return undefined;
 	}
 	// The lead has no heading and cannot contain a subsection.
 	if (section === 0) {
 		return undefined;
 	}
-	const entries = await ctx.sections.list(mwn, args.title);
+	// Read the outline at the revision the write resolves the section number
+	// against, when the caller supplied one.
+	const entries = await ctx.sections.list(mwn, args.title, latestId);
 	const index = String(section);
+	const parent = entries.find((e) => e.index === index);
+	if (parent === undefined) {
+		return undefined;
+	}
+	// Sections a template in the source expands to carry `T-` ids and are
+	// excluded: only headings the caller wrote count.
+	const sourceSections = await ctx.sections.listInSource(mwn, args.title, source);
+	const written = sourceSections.filter((e) => e.editable);
+	const first = written[0];
+	// `byteoffset` counts UTF-8 bytes, while String#slice counts UTF-16 units;
+	// decode the byte prefix so a multibyte character before the heading is
+	// judged as the text it is, not as a truncated surrogate.
+	const prefix =
+		first?.byteOffset === undefined || first.byteOffset === 0
+			? ''
+			: Buffer.from(source, 'utf8').subarray(0, first.byteOffset).toString('utf8');
+	if (
+		first === undefined ||
+		first.level !== parent.level ||
+		(first.byteOffset !== undefined && prefix.trim() !== '')
+	) {
+		const heading = `${'='.repeat(parent.level)} ${parent.line} ${'='.repeat(parent.level)}`;
+		return `Section ${index} (${parent.line}) is replaced together with its heading, but the source supplied does not begin with a heading at level ${parent.level}. The heading would be deleted. Start the source with the heading (for example "${heading}"), or with a new heading at the same level to rename the section. To add content without replacing the section, use mode='append'.`;
+	}
+	const sibling = written.find((entry, position) => position > 0 && entry.level <= parent.level);
+	if (sibling !== undefined) {
+		return `The source supplied contains a heading at level ${sibling.level} ("${sibling.line}") after the section heading. A section replace writes only inside section ${index}, so that heading would duplicate a sibling section. Remove it from the source, or write the whole page.`;
+	}
+	if (removeSubsections === true) {
+		return undefined;
+	}
 	// childrenOf walks every entry so a transcluded heading still closes the
 	// subtree at the right point; transcluded children are filtered out here
 	// because they can never appear in source for the caller to carry back,
@@ -118,15 +164,7 @@ async function subsectionRemovalError(
 	if (children.length === 0) {
 		return undefined;
 	}
-	const parent = entries.find((e) => e.index === index);
-	if (parent === undefined) {
-		return undefined;
-	}
-	// Sections a template in the source expands to carry `T-` ids and are
-	// excluded, mirroring the transcluded-children filter above: only headings
-	// the caller wrote count as carried back.
-	const sourceSections = await ctx.sections.listInSource(mwn, args.title, source);
-	const carriedBack = sourceSections.filter((e) => e.editable && e.level > parent.level).length;
+	const carriedBack = written.filter((e) => e.level > parent.level).length;
 	if (carriedBack >= children.length) {
 		return undefined;
 	}
@@ -137,7 +175,7 @@ async function subsectionRemovalError(
 export const updatePage: Tool<typeof inputSchema> = {
 	name: 'update-page',
 	description:
-		"Replaces the existing content of a wiki page and returns the new revision ID. Fails if the page does not exist; for new pages, use create-page. Pass latestId (obtained from get-page with metadata=true) to enable edit-conflict detection: if the page has been edited since that revision, the update is rejected rather than silently clobbering concurrent changes. For large pages, two modifiers avoid shipping the full source: section=N replaces one section together with every subsection nested under it, and is refused when source would drop those subsections; paired with get-page section=N it reads, changes and writes back a single section, which is also how to add content in the middle of a page; mode='append' or 'prepend' sends a delta, and adding a new section means appending a source that begins with a heading. Each call is a separate revision; for chains of mode='append' calls, re-fetching latestId between calls confirms the previous chunk landed before the next. Resending a mode='append' or 'prepend' call whose result never arrived adds the delta a second time.",
+		"Replaces the existing content of a wiki page and returns the new revision ID. Fails if the page does not exist; for new pages, use create-page. Pass latestId (obtained from get-page with metadata=true) to enable edit-conflict detection: if the page has been edited since that revision, the update is rejected rather than silently clobbering concurrent changes. For large pages, two modifiers avoid shipping the full source: section=N replaces one section, including its heading and every subsection nested under it, so source must begin with the heading (get-page section=N returns it) and must not introduce a second heading at that section's level; the call is refused otherwise, and when source would drop the nested subsections; paired with get-page section=N it reads, changes and writes back a single section, which is also how to add content in the middle of a page; mode='append' or 'prepend' sends a delta, and adding a new section means appending a source that begins with a heading. Each call is a separate revision; for chains of mode='append' calls, re-fetching latestId between calls confirms the previous chunk landed before the next. Resending a mode='append' or 'prepend' call whose result never arrived adds the delta a second time.",
 	inputSchema,
 	annotations: {
 		title: 'Update page',
@@ -151,7 +189,7 @@ export const updatePage: Tool<typeof inputSchema> = {
 
 	async handle(args, ctx: ToolContext): Promise<CallToolResult> {
 		const mwn = await ctx.mwn();
-		const removalError = await subsectionRemovalError(args, ctx, mwn);
+		const removalError = await sectionReplaceError(args, ctx, mwn);
 		if (removalError) {
 			return ctx.format.invalidInput(removalError);
 		}

@@ -9,10 +9,16 @@ export interface SectionEntry {
 	line: string;
 	/** False when the section is transcluded and cannot be edited on this page. */
 	editable: boolean;
+	/**
+	 * Byte offset of the heading in the parsed text, when the API reports it.
+	 * A section replace must begin at this heading, so the offset tells the
+	 * guard whether anything precedes it in the source.
+	 */
+	byteOffset?: number;
 }
 
 export interface SectionService {
-	list(mwn: Mwn, title: string): Promise<SectionEntry[]>;
+	list(mwn: Mwn, title: string, revisionId?: number): Promise<SectionEntry[]>;
 	listInSource(mwn: Mwn, title: string, source: string): Promise<SectionEntry[]>;
 }
 
@@ -20,6 +26,7 @@ interface PageSectionsApi {
 	index?: string;
 	level?: string;
 	line?: string;
+	byteoffset?: string;
 }
 
 // The API reports `index` as `T-1`, `T-2`, … for sections that arrive by
@@ -30,10 +37,14 @@ function isEditableIndex(index: string): boolean {
 }
 
 export class SectionServiceImpl implements SectionService {
-	public async list(mwn: Mwn, title: string): Promise<SectionEntry[]> {
+	// `revisionId` asks for the outline as that revision had it. A write scoped
+	// to a section resolves the number against the revision it names, so a guard
+	// reading the current outline would judge a different section than the one
+	// the write will replace.
+	public async list(mwn: Mwn, title: string, revisionId?: number): Promise<SectionEntry[]> {
 		return this.parseSections(mwn, {
 			action: 'parse',
-			page: title,
+			...(revisionId === undefined ? { page: title } : { oldid: String(revisionId) }),
 			prop: 'sections',
 			formatversion: '2',
 		});
@@ -60,11 +71,13 @@ export class SectionServiceImpl implements SectionService {
 			(await mwn.request(params)) as { parse?: { sections?: PageSectionsApi[] } } | undefined;
 		return (response?.parse?.sections ?? []).map((s) => {
 			const index = s.index ?? '';
+			const byteOffset = Number.parseInt(s.byteoffset ?? '', 10);
 			return {
 				index,
 				level: Number.parseInt(s.level ?? '', 10) || 0,
 				line: s.line ?? '',
 				editable: isEditableIndex(index),
+				...(Number.isNaN(byteOffset) ? {} : { byteOffset }),
 			};
 		});
 	}
