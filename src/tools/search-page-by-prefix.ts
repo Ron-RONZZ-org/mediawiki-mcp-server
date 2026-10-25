@@ -123,7 +123,7 @@ async function resolvePrefixNamespace(
 	const nsPart = prefix.slice(0, colon);
 	const rest = prefix.slice(colon + 1);
 
-	const { key } = ctx.activeWiki.get();
+	const { key } = ctx.wiki;
 	const siteInfo = await resolveSiteInfo(ctx, key);
 	const nsId = siteInfo.namespaceNames?.[nsPart.toLowerCase()];
 

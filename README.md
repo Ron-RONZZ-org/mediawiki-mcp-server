@@ -7,7 +7,7 @@ An MCP (Model Context Protocol) server that enables Large Language Model (LLM) c
 
 ### Tools
 
-Every tool that operates on a wiki accepts an optional `wiki` argument naming the wiki to act on (the wiki-management and OAuth tools do not) — pass a wiki key (e.g. `en.wikipedia.org`) or the full `mcp://wikis/{wikiKey}` URI. Omit it to use the configured default wiki (see [Configuration](#configuration)). Each tool response reports the wiki the call ran against.
+Every tool that operates on a wiki accepts an optional `wiki` argument naming the wiki to act on (the wiki-management and OAuth tools do not) — pass a wiki key (e.g. `en.wikipedia.org`) or the full `mcp://wikis/{wikiKey}` URI. Omit it to use the configured default wiki (see [Configuration](#configuration)). Each tool response reports the wiki the call ran against. Each successful response carries its payload as prose in `content` and as JSON in `structuredContent`; see [response channels](docs/tool-conventions.md#response-channels).
 
 #### Page reads
 
@@ -29,8 +29,8 @@ Every tool that operates on a wiki accepts an optional `wiki` argument naming th
 | `image-search` | Search Wikimedia Commons for images (file page URL, direct + thumbnail URLs, dimensions, MIME, license, author, credit) — a wiki is not required. |
 | `list-wikis` | List every configured wiki — its key, sitename, server, whether it is read-only or the default, whether it is reachable, which extension-gated tools work on it, and, for an OAuth-configured wiki, its authorization server. Disabled when fewer than two wikis are configured. |
 | `parse-wikitext` | Render wikitext to HTML without saving. Returns parse warnings, wikilinks, templates, and external URLs. |
-| `search-page` | Search wiki page titles and contents. |
-| `search-page-by-prefix` | Search page titles by prefix (namespace-style prefixes like `RonzzIT:` are resolved). |
+| `search-page` | Search wiki page titles and contents (full-text). Searches the wiki's content namespaces unless given other namespace IDs. |
+| `search-page-by-prefix` | Search page titles by prefix; namespace-style prefixes like `RonzzIT:` are resolved against the wiki's namespaces. |
 | `whoami` | Report the identity the current session is authenticated as on the targeted wiki — username, whether it is anonymous, and group memberships (optionally user rights). |
 
 #### SVG rendering
@@ -46,10 +46,11 @@ Every tool that operates on a wiki accepts an optional `wiki` argument naming th
 | `create-page` 🔐 | Create a new wiki page. | `Create, edit, and move pages` |
 | `delete-page` 🔐 | Delete a wiki page. | `Delete pages, revisions, and log entries` |
 | `move-page` 🔐 | Move (rename) a wiki page. | `Create, edit, and move pages` |
+| `protect-page` 🔐 | Protect or unprotect a wiki page. | `Protect and unprotect pages` |
 | `undelete-page` 🔐 | Undelete a wiki page. | `Delete pages, revisions, and log entries` |
 | `update-file` 🔐 | Upload a new revision (or update only the semantic image facts with `factsOnly`) and replace/clear facts. | `Upload, replace, and move files` |
 | `update-file-from-url` 🔐 | Upload a new revision of an existing file from a URL, optionally replacing/clearing its semantic image facts. | `Upload, replace, and move files` |
-| `update-page` 🔐 | Update an existing wiki page. | `Edit existing pages` |
+| `update-page` 🔐 | Update an existing wiki page: overwrite it, add to it, or rewrite one passage with `find-replace`. Section replaces are refused when the source would drop the heading or duplicate a sibling heading. | `Edit existing pages` |
 | `upload-file` 🔐 | Upload a file to the wiki from local disk, optionally with semantic image facts (license/author/source). | `Upload new files` |
 | `upload-file-from-url` 🔐 | Upload a file to the wiki from a URL, optionally with semantic image facts (license/author/source). | `Upload, replace, and move files` |
 
@@ -78,14 +79,15 @@ Each pack's tools register only on wikis where its extension is installed.
 | `neowiki-list-schemas` | List schemas (entity types) and their property counts. |
 | `neowiki-get-schema` | Get one schema's property definitions, relations, and select options. |
 | `neowiki-cypher-query` | Run a read-only Cypher query against the knowledge graph. |
-| `neowiki-search-subjects` | Find subject IDs by label within a schema. |
+| `neowiki-search-subjects` | Find subject IDs by name, in one schema or all. |
 | `neowiki-get-subject` | Fetch one subject's structured data by ID. |
 | `neowiki-get-page-subjects` | List the subjects attached to a wiki page. |
-| `neowiki-create-subject` | Create a subject (child or main) on a page. Requires the `edit` right. |
+| `neowiki-create-subject` | Create a subject (main or other) on a page. Requires the `edit` right. |
 | `neowiki-update-subject` | Replace a subject's label and statements. Requires the `edit` right. |
 | `neowiki-delete-subject` | Delete a subject by ID. Requires the `edit` right. |
 | `neowiki-set-main-subject` | Set or clear a page's main subject. Requires the `edit` right. |
 | `neowiki-validate-subject` | Dry-run validate a proposed subject and return violations. |
+| `neowiki-mint-subject-ids` | Mint unused subject IDs for dependent subjects written with their host. |
 
 **[Semantic MediaWiki](https://www.mediawiki.org/wiki/Extension:Semantic_MediaWiki)**
 
@@ -168,9 +170,10 @@ The variables below are relevant to any setup. Variables that only apply when se
 | `CONFIG` | Path to your configuration file | `config.json` |
 | `MCP_TRANSPORT` | Type of MCP server transport (`stdio` or `http`) | `stdio` |
 | `MCP_LOG_LEVEL` | Minimum severity for logger output. One of `debug`, `info`, `notice`, `warning`, `error`, `critical`, `alert`, `emergency`, or `silent`. | `debug` |
-| `MCP_CONTENT_MAX_BYTES` | Byte cap for the content bodies and result blocks tools return (wikitext, rendered HTML, diffs, statement and row listings). Tune to the target LLM client's tool-response budget. | `50000` |
+| `MCP_CONTENT_MAX_BYTES` | Byte cap for the content bodies and result blocks tools return (wikitext, rendered HTML, diffs, statement and row listings), applied once per response. Tune to the target LLM client's tool-response budget. | `75000` |
 | `MCP_FILE_DATA_MAX_BYTES` | Hard cap on the base64-encoded size of a `get-file-content` image response. A transport/safety backstop; tune the actual size per call with the tool's `width`. Over-cap calls error rather than truncate. | `1000000` |
 | `MCP_UPLOAD_MAX_BYTES` | Memory cap on the server-side fetch used by `upload-file-from-url` / `update-file-from-url`. Files larger than this are handed to the wiki's own copy-upload instead of being buffered by the server. Guards this server's memory, not the wiki's `$wgMaxUploadSize`. | `104857600` |
+| `MCP_USER_AGENT` | Replaces the `User-Agent` header of every outbound request, so wiki operators can reach you. Give a name and an email or URL, e.g. `ExampleBot/1.0 (bot@example.org)`. | `mediawiki-mcp-server/<version> (https://github.com/ProfessionalWiki/MediaWiki-MCP-Server)` |
 | `MCP_OAUTH_CREDENTIALS_FILE` | Override the default credentials store path. Default: `~/.config/mediawiki-mcp/credentials.json` (Linux/macOS) or `%APPDATA%\mediawiki-mcp\credentials.json` (Windows). | `unset` |
 | `MCP_OAUTH_NO_BROWSER` | Set to `1` to skip launching a browser during the OAuth flow; the auth URL is logged to stderr instead. Useful in headless environments. | `unset` |
 
@@ -195,13 +198,13 @@ Create a `config.json` file to configure wiki connections. Use the `config.examp
 }
 ```
 
-**Internal vs public address.** The `server` you configure may be an internal hostname (e.g. `http://mediawiki` in Docker); URLs handed back to the caller are built from the wiki's public address, so internal hostnames don't leak into links. See [docs/configuration.md — per-wiki fields](docs/configuration.md#per-wiki-fields).
+**Internal vs public address.** The `server` you configure may be an internal hostname (e.g. `http://mediawiki` in Docker); URLs handed back to the caller are built from the wiki's public address, so internal hostnames don't leak into links, once the internal host is listed in `MCP_TRUSTED_HOSTS`. See [docs/configuration.md — per-wiki fields](docs/configuration.md#per-wiki-fields).
 
 For the full field reference, env-var substitution, secret sources, change tags, upload directories, and authentication options, see [docs/configuration.md](docs/configuration.md).
 
 ## Authentication
 
-Tools marked 🔐 require authentication. Write tools (including extension-pack writes) are hidden from `tools/list` when the configured default wiki has `readOnly: true` — see [Deployment](#deployment).
+Tools marked 🔐 require authentication. Write tools (including extension-pack writes) are refused on a wiki that has `readOnly: true`, and hidden from `tools/list` when every configured wiki has it — see [Deployment](#deployment).
 
 - **Browser-based OAuth (recommended).** Sign in through a browser tab the first time a tool needs auth. Set `oauth2ClientId` and `oauth2CallbackPort` per wiki — see [docs/configuration.md — OAuth (browser-based)](docs/configuration.md#oauth-browser-based).
 - **Per-request bearer token (HTTP), deprecated.** Each request carries `Authorization: Bearer <token>` and the server forwards it to MediaWiki. Off by default, because an MCP server must not accept tokens that were not issued for it. See [docs/deployment.md — per-request bearer token](docs/deployment.md#per-request-bearer-token-http-transport-deprecated).
@@ -209,7 +212,7 @@ Tools marked 🔐 require authentication. Write tools (including extension-pack 
 - **Manual OAuth2 access token.** Paste a long-lived token into `config.json`. See [docs/configuration.md — manual OAuth2 access token](docs/configuration.md#manual-oauth2-access-token).
 - **Bot password.** Fallback when Extension:OAuth isn't installed. See [docs/configuration.md — bot password](docs/configuration.md#bot-password).
 
-The Cargo tools (`cargo-query`, `cargo-list-tables`, `cargo-describe-table`) call API actions gated by the `runcargoqueries` user right. Most wikis grant this to all users by default; wikis that restrict it require the **`Create, query and delete data through the Cargo extension`** grant on the bot password or OAuth consumer. The Cargo extension is also detected on wiki.gg-hosted wikis (Helldivers, Terraria, Ark, etc.), where it ships under the rebranded name `LIBRARIAN`.
+`cargo-query` needs the **`Create, query and delete data through the Cargo extension`** grant on a bot password or OAuth consumer, even on a wiki that lets every user run Cargo queries. The Cargo extension is also detected on wiki.gg wikis, which run `LIBRARIAN`, wiki.gg's fork of Cargo.
 
 ## Installation
 

@@ -6,25 +6,10 @@ import {
 	McpServer,
 	ResourceNotFoundError,
 } from '@modelcontextprotocol/server';
-import type { ResourceTemplate } from '@modelcontextprotocol/server';
+import type { Resource, ResourceTemplate } from '@modelcontextprotocol/server';
 import { registerAllResources } from '../../src/resources/index.ts';
-import { createMockMwn } from '../helpers/mock-mwn.ts';
-import { fakeContext } from '../helpers/fakeContext.ts';
-import type { SiteInfo } from '../../src/wikis/siteInfoCache.ts';
+import { fakeContext, probeReporting } from '../helpers/fakeContext.ts';
 import type { WikiConfig } from '../../src/config/loadConfig.ts';
-
-function emptyCache() {
-	const map = new Map<string, SiteInfo>();
-	return {
-		get: (k: string) => map.get(k),
-		set: (k: string, v: SiteInfo) => {
-			map.set(k, v);
-		},
-		delete: (k: string) => {
-			map.delete(k);
-		},
-	};
-}
 
 type ReadHandler = (
 	uri: { toString: () => string },
@@ -53,10 +38,14 @@ function captureHandler(ctx: ReturnType<typeof fakeContext>): ReadHandler {
 
 // registerAllResources always supplies a list callback, and that callback
 // ignores the server context it is handed.
-async function listedUris(template: ResourceTemplate): Promise<string[]> {
+async function listedResources(template: ResourceTemplate): Promise<Resource[]> {
 	// oxlint-disable-next-line typescript/no-non-null-assertion -- see above
 	const listed = await template.listCallback!({} as never);
-	return listed.resources.map((resource) => resource.uri);
+	return listed.resources;
+}
+
+async function listedUris(template: ResourceTemplate): Promise<string[]> {
+	return (await listedResources(template)).map((resource) => resource.uri);
 }
 
 // A context whose registry holds exactly the given keys, so a test can name a
@@ -73,9 +62,6 @@ function ctxWithWikis(keys: string[]) {
 		registry[key] = config;
 	}
 	return fakeContext({
-		mwn: async () =>
-			createMockMwn({ request: vi.fn().mockRejectedValue(new Error('down')) }) as never,
-		siteInfoCache: emptyCache() as never,
 		wikis: {
 			getAll: () => registry as never,
 			get: ((key: string) => (Object.hasOwn(registry, key) ? registry[key] : undefined)) as never,
@@ -88,17 +74,12 @@ function ctxWithWikis(keys: string[]) {
 
 describe('wikis resource', () => {
 	it('exposes the public server and license from siteinfo', async () => {
-		const mock = createMockMwn({
-			request: vi.fn().mockResolvedValue({
-				query: {
-					general: { server: 'https://public.example', articlepath: '/wiki/$1' },
-					rightsinfo: { url: 'https://example.org/license', text: 'Example License' },
-				},
-			}),
-		});
 		const ctx = fakeContext({
-			mwn: async () => mock as never,
-			siteInfoCache: emptyCache() as never,
+			wikiProbe: probeReporting({
+				server: 'https://public.example',
+				articlepath: '/w/index.php?title=$1',
+				license: { url: 'https://example.org/license', title: 'Example License' },
+			}),
 		});
 		const handler = captureHandler(ctx);
 
@@ -109,35 +90,16 @@ describe('wikis resource', () => {
 		const payload = JSON.parse(result.contents[0].text) as Record<string, unknown>;
 
 		expect(payload.server).toBe('https://public.example');
-		expect(payload.articlepath).toBe('/wiki');
+		expect(payload.articlepath).toBe('/w/index.php?title=$1');
 		expect(payload.license).toEqual({
 			url: 'https://example.org/license',
 			title: 'Example License',
 		});
 	});
 
-	it('falls back to the configured server and omits license when siteinfo is unavailable', async () => {
-		const mock = createMockMwn({ request: vi.fn().mockRejectedValue(new Error('down')) });
-		const ctx = fakeContext({
-			mwn: async () => mock as never,
-			siteInfoCache: emptyCache() as never,
-		});
-		const handler = captureHandler(ctx);
-
-		const result = await handler(
-			{ toString: () => 'mcp://wikis/test-wiki' },
-			{ wikiKey: 'test-wiki' },
-		);
-		const payload = JSON.parse(result.contents[0].text) as Record<string, unknown>;
-
-		expect(payload.server).toBe('https://test.wiki');
-		expect(payload.license).toBeUndefined();
-	});
-
 	// Every credential and server-side setting at once: the published body is an
 	// allowlist, so a field added to WikiConfig later cannot leak by default.
 	it('publishes only the public fields, never credentials or operational settings', async () => {
-		const mock = createMockMwn({ request: vi.fn().mockRejectedValue(new Error('down')) });
 		const loaded = {
 			sitename: 'Secretive',
 			server: 'https://internal.svc',
@@ -156,8 +118,6 @@ describe('wikis resource', () => {
 			attributeEdits: false,
 		};
 		const ctx = fakeContext({
-			mwn: async () => mock as never,
-			siteInfoCache: emptyCache() as never,
 			wikis: {
 				getAll: () => ({ 'test-wiki': loaded }) as never,
 				get: ((key: string) => (key === 'test-wiki' ? loaded : undefined)) as never,
@@ -298,6 +258,16 @@ describe('wikis resource', () => {
 			await client.close();
 			await handler.close();
 		}
+	});
+
+	it('describes a wiki by the public server its probe read', async () => {
+		const { template } = captureResource({
+			...ctxWithWikis(['test-wiki']),
+			wikiProbe: probeReporting({ server: 'https://public.example' }),
+		});
+
+		const [resource] = await listedResources(template);
+		expect(resource.description).toContain('https://public.example');
 	});
 
 	it('leaves a host:port key unencoded, as RFC 3986 permits ":" in a path segment', async () => {

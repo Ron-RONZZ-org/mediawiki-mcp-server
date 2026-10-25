@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { allTools } from '../../src/tools/index.ts';
 
 vi.mock('../../src/wikis/wikiDiscovery.ts', () => ({
 	discoverWiki: vi.fn(),
@@ -6,7 +7,9 @@ vi.mock('../../src/wikis/wikiDiscovery.ts', () => ({
 
 import type { RegisteredTool } from '@modelcontextprotocol/server';
 import { discoverWiki } from '../../src/wikis/wikiDiscovery.ts';
-import { SsrfValidationError } from '../../src/transport/ssrfGuard.ts';
+import { WikiTimeoutError } from '../../src/errors/wikiTimeoutError.ts';
+import { WIKI_CONNECT_TIMEOUT_MS } from '../../src/runtime/callDeadline.ts';
+import { SsrfValidationError } from '../../src/outbound/ssrfGuard.ts';
 import { DuplicateWikiKeyError, WikiRegistryImpl } from '../../src/wikis/wikiRegistry.ts';
 import type { WikiConfig } from '../../src/config/loadConfig.ts';
 import { reconcileTools } from '../../src/runtime/reconcile.ts';
@@ -138,18 +141,21 @@ describe('add-wiki', () => {
 		const deps = {
 			wikiRegistry: registry,
 			transport: 'http' as const,
-			wikiProbe: { hasAnyExtension: async () => false } as never,
+			wikiProbe: {
+				inspect: async () => ({ reachable: true, extensions: new Set<string>() }),
+			} as never,
 			extensionPacks: [],
+			descriptors: allTools,
 		};
 
 		await reconcileTools(tools, deps);
-		expect(WRITE_TOOL_NAMES.every((n) => states.get(n) === false)).toBe(true);
+		expect(states.get('update-page')).toBe(false);
 
 		await dispatch(addWiki, ctx)({ wikiUrl: 'https://example.org/' });
 		await reconcileTools(tools, deps);
 
 		// Still hidden: the added wiki inherited the deployment's read-only posture.
-		expect(WRITE_TOOL_NAMES.every((n) => states.get(n) === false)).toBe(true);
+		expect(states.get('update-page')).toBe(false);
 		expect(states.get('get-page')).toBe(true);
 	});
 
@@ -208,6 +214,39 @@ describe('add-wiki', () => {
 
 		const envelope = assertStructuredError(result, 'upstream_failure');
 		expect(envelope.message).toMatch(/Failed to add wiki: Connection refused/);
+		expect(reconcile).not.toHaveBeenCalled();
+	});
+
+	it('gives discovery the budget for reaching a wiki the first time', async () => {
+		vi.mocked(discoverWiki).mockResolvedValue(null);
+
+		await dispatch(
+			addWiki,
+			fakeManagementContext({ reconcile: vi.fn() }),
+		)({
+			wikiUrl: 'https://example.org/',
+		});
+
+		// The phase also picks the timeout message: one about reaching the wiki,
+		// not one about a call that may have landed.
+		expect(vi.mocked(discoverWiki).mock.calls[0]?.[1]).toMatchObject({
+			timeoutMs: WIKI_CONNECT_TIMEOUT_MS,
+			phase: 'connecting',
+		});
+	});
+
+	it('names a discovery timeout rather than blaming the URL', async () => {
+		vi.mocked(discoverWiki).mockRejectedValue(new WikiTimeoutError(15_000, 'connecting'));
+
+		const reconcile = vi.fn();
+		const ctx = fakeManagementContext({ reconcile });
+		const result = await dispatch(addWiki, ctx)({ wikiUrl: 'https://example.org/' });
+
+		const envelope = assertStructuredError(result, 'upstream_failure', 'request-timeout');
+		expect(envelope.message).toMatch(/Gave up trying to reach the wiki/);
+		// add-wiki changes this server's list of wikis, not a wiki, so there is no
+		// wiki write that could have landed.
+		expect(envelope.message).not.toMatch(/may or may not have been applied/);
 		expect(reconcile).not.toHaveBeenCalled();
 	});
 

@@ -1,21 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('../../../../src/transport/httpFetch.ts', async () => {
-	const actual = await vi.importActual<typeof import('../../../../src/transport/httpFetch.ts')>(
-		'../../../../src/transport/httpFetch.ts',
+vi.mock('../../../../src/outbound/httpFetch.ts', async () => {
+	const actual = await vi.importActual<typeof import('../../../../src/outbound/httpFetch.ts')>(
+		'../../../../src/outbound/httpFetch.ts',
 	);
 	return { ...actual, postForm: vi.fn() };
 });
 
-import { FetchError } from 'node-fetch';
 import {
 	FileTooLargeError,
 	HttpStatusError,
 	postForm,
-} from '../../../../src/transport/httpFetch.ts';
-import { RedirectDropsBodyError } from '../../../../src/transport/requestChain.ts';
-import { runSparqlQuery, SparqlError } from '../../../../src/tools/extensions/wikibase/sparql.ts';
+} from '../../../../src/outbound/httpFetch.ts';
+import { RedirectDropsBodyError } from '../../../../src/outbound/requestChain.ts';
+import { runSparqlQuery } from '../../../../src/tools/extensions/wikibase/sparql.ts';
+import { ClassifiedError } from '../../../../src/errors/classifyError.ts';
 import { withRequestFields } from '../../../../src/runtime/requestContext.ts';
+import { RequestFailedError } from '../../../../src/outbound/httpFetch.ts';
 
 const ENDPOINT = 'https://query.example.org/sparql';
 const CATS = 'SELECT ?item WHERE { ?item wdt:P31 wd:Q146 }';
@@ -29,10 +30,10 @@ function rowBindings(count: number): unknown[] {
 	return Array.from({ length: count }, (_, i) => ({ item: { type: 'uri', value: `urn:${i}` } }));
 }
 
-async function failureOf(promise: Promise<unknown>): Promise<SparqlError> {
+async function failureOf(promise: Promise<unknown>): Promise<ClassifiedError> {
 	const err = await promise.catch((e: unknown) => e);
-	expect(err).toBeInstanceOf(SparqlError);
-	return err as SparqlError;
+	expect(err).toBeInstanceOf(ClassifiedError);
+	return err as ClassifiedError;
 }
 
 describe('runSparqlQuery', () => {
@@ -213,6 +214,12 @@ describe('runSparqlQuery', () => {
 		);
 	});
 
+	it('records the HTTP status the query service answered with', async () => {
+		vi.mocked(postForm).mockRejectedValue(new HttpStatusError(503, ENDPOINT, 'Unavailable'));
+
+		expect((await failureOf(runSparqlQuery(ENDPOINT, CATS, MANY_ROWS))).upstreamStatus).toBe(503);
+	});
+
 	it('maps a refused query to permission_denied', async () => {
 		vi.mocked(postForm).mockRejectedValue(new HttpStatusError(403, ENDPOINT, 'Forbidden'));
 
@@ -246,7 +253,9 @@ describe('runSparqlQuery', () => {
 	});
 
 	it('maps an unreachable endpoint to upstream_failure', async () => {
-		vi.mocked(postForm).mockRejectedValue(new FetchError('request failed', 'system'));
+		vi.mocked(postForm).mockRejectedValue(
+			new RequestFailedError('https://source.example/file', new Error('request failed')),
+		);
 
 		expect((await failureOf(runSparqlQuery(ENDPOINT, CATS, MANY_ROWS))).category).toBe(
 			'upstream_failure',
@@ -315,9 +324,9 @@ describe('runSparqlQuery', () => {
 	it('names a redirect-derived URL as the endpoint in an unclassified failure', async () => {
 		const endpoint = 'https://query.example.org/hunter2/sparql';
 		vi.mocked(postForm).mockRejectedValue(
-			new FetchError(
-				'request to https://query.example.org/hunter2/results failed, reason: socket hang up',
-				'system',
+			new RequestFailedError(
+				'https://query.example.org/hunter2/results',
+				new Error('socket hang up'),
 			),
 		);
 
@@ -334,9 +343,9 @@ describe('runSparqlQuery', () => {
 	it('names a redirect-derived URL that extends the endpoint', async () => {
 		const endpoint = 'https://query.example.org/hunter2/sparql';
 		vi.mocked(postForm).mockRejectedValue(
-			new FetchError(
-				'request to https://query.example.org/hunter2/sparql?sig=hunter3 failed, reason: socket hang up',
-				'system',
+			new RequestFailedError(
+				'https://query.example.org/hunter2/sparql?sig=hunter3',
+				new Error('socket hang up'),
 			),
 		);
 
@@ -486,7 +495,7 @@ describe('runSparqlQuery', () => {
 	});
 
 	// The envelope is parsed outside the classifying catch, so anything it throws
-	// that is not a SparqlError reaches the caller unclassified.
+	// that is not a ClassifiedError reaches the caller unclassified.
 	it('reports a JSON body that is not an object as upstream_failure', async () => {
 		vi.mocked(postForm).mockResolvedValue('null');
 

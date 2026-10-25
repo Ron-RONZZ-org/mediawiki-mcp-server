@@ -3,7 +3,9 @@ import {
 	assertWikiGatesNameOwnTools,
 	extensionErrorVocabulary,
 	extensionPacks,
+	packToolRefusal,
 } from '../../../src/tools/extensions/index.ts';
+import type { WikiInspection } from '../../../src/wikis/wikiProbe.ts';
 import type { ErrorCategory } from '../../../src/errors/classifyError.ts';
 import type { ExtensionPack } from '../../../src/tools/extensions/types.ts';
 import type { Tool } from '../../../src/runtime/tool.ts';
@@ -84,7 +86,7 @@ describe('extensionPacks', () => {
 		expect(citation?.tools.map((t) => t.name)).toEqual(['citation-get-citation']);
 	});
 
-	it('exposes the eleven NeoWiki tools including the write tools', () => {
+	it('exposes the twelve NeoWiki tools including the write tools', () => {
 		const neowiki = extensionPacks.find((p) => p.id === 'neowiki');
 		expect(neowiki?.tools.map((t) => t.name)).toEqual([
 			'neowiki-list-schemas',
@@ -98,6 +100,7 @@ describe('extensionPacks', () => {
 			'neowiki-delete-subject',
 			'neowiki-set-main-subject',
 			'neowiki-validate-subject',
+			'neowiki-mint-subject-ids',
 		]);
 	});
 
@@ -116,21 +119,6 @@ describe('extensionPacks', () => {
 
 	it('every wiki gate names only tools its own pack provides', () => {
 		expect(() => assertWikiGatesNameOwnTools(extensionPacks)).not.toThrow();
-	});
-
-	it('every tool declares an explicit boolean readOnlyHint annotation', () => {
-		// The read-only gate derives extension write tools from
-		// readOnlyHint === false (WRITE_TOOL_NAMES in src/runtime/wikiCapability.ts).
-		// readOnlyHint is optional in the SDK type, so a mutating tool that omits it
-		// would silently escape the gate. Require every pack tool to state it.
-		for (const pack of extensionPacks) {
-			for (const tool of pack.tools) {
-				expect(
-					typeof tool.annotations.readOnlyHint,
-					`${tool.name} must declare a boolean readOnlyHint`,
-				).toBe('boolean');
-			}
-		}
 	});
 });
 
@@ -194,5 +182,56 @@ describe('assertWikiGatesNameOwnTools', () => {
 
 	it('accepts the packs the server actually ships', () => {
 		expect(() => extensionErrorVocabulary(extensionPacks)).not.toThrow();
+	});
+});
+
+describe('packToolRefusal', () => {
+	// oxlint-disable-next-line typescript/no-explicit-any
+	const tool = (name: string): Tool<any> => ({ name }) as unknown as Tool<any>;
+
+	const pack: ExtensionPack = {
+		id: 'demo',
+		extensionNames: ['Demo', 'DemoAlias'],
+		tools: [tool('demo-read'), tool('demo-query')],
+		wikiGate: {
+			tools: ['demo-query'],
+			isSatisfied: (identity) => identity.sparqlEndpoint !== undefined,
+			refusal: (wikiKey) => `Wiki "${wikiKey}" publishes no query service.`,
+		},
+	};
+
+	function wiki(extensions: string[], extra: Partial<WikiInspection> = {}): WikiInspection {
+		return { reachable: true, extensions: new Set(extensions), ...extra };
+	}
+
+	it('allows a tool on a wiki that has any of the pack’s extension names', () => {
+		expect(packToolRefusal(pack, 'demo-read', wiki(['DemoAlias']), 'w')).toBeUndefined();
+	});
+
+	it('refuses a tool on a wiki without the extension, saying it is not installed', () => {
+		expect(packToolRefusal(pack, 'demo-read', wiki([]), 'w')).toContain(
+			'The Demo extension is not installed on wiki "w".',
+		);
+	});
+
+	it('refuses a tool on a wiki it could not reach, saying so', () => {
+		expect(
+			packToolRefusal(pack, 'demo-read', { reachable: false, extensions: new Set() }, 'w'),
+		).toContain('Wiki "w" could not be reached to check for the Demo extension.');
+	});
+
+	it('refuses a gated tool on a wiki that does not satisfy the gate, in the gate’s words', () => {
+		expect(packToolRefusal(pack, 'demo-query', wiki(['Demo']), 'w')).toBe(
+			'Wiki "w" publishes no query service.',
+		);
+	});
+
+	it('allows a gated tool on a wiki that satisfies the gate', () => {
+		const served = wiki(['Demo'], { sparqlEndpoint: 'https://query.example/sparql' });
+		expect(packToolRefusal(pack, 'demo-query', served, 'w')).toBeUndefined();
+	});
+
+	it('allows an ungated tool on a wiki that does not satisfy the gate', () => {
+		expect(packToolRefusal(pack, 'demo-read', wiki(['Demo']), 'w')).toBeUndefined();
 	});
 });

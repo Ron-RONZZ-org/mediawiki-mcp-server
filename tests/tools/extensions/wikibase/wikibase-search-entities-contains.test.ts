@@ -1,14 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('../../../../src/transport/httpFetch.ts', async () => {
-	const actual = await vi.importActual<typeof import('../../../../src/transport/httpFetch.ts')>(
-		'../../../../src/transport/httpFetch.ts',
+vi.mock('../../../../src/outbound/httpFetch.ts', async () => {
+	const actual = await vi.importActual<typeof import('../../../../src/outbound/httpFetch.ts')>(
+		'../../../../src/outbound/httpFetch.ts',
 	);
 	return { ...actual, postForm: vi.fn() };
 });
 
-import { postForm } from '../../../../src/transport/httpFetch.ts';
-import { fakeContext } from '../../../helpers/fakeContext.ts';
+import { postForm } from '../../../../src/outbound/httpFetch.ts';
+import { fakeContext, probeReporting } from '../../../helpers/fakeContext.ts';
 import { toolArgs } from '../../../helpers/toolArgs.ts';
 import { wikibaseSearchEntities } from '../../../../src/tools/extensions/wikibase/wikibase-search-entities.ts';
 import { assertStructuredData, assertStructuredError } from '../../../helpers/structuredResult.ts';
@@ -17,25 +17,17 @@ const ENDPOINT = 'https://query.example.org/sparql';
 
 function contextWithEndpoint() {
 	return fakeContext({
-		siteInfoCache: {
-			get: () => ({
-				server: 'https://test.wiki',
-				articlepath: '/wiki',
-				sparqlEndpoint: ENDPOINT,
-			}),
-			set: () => {},
-			delete: () => {},
-		} as never,
+		wikiProbe: probeReporting({
+			server: 'https://test.wiki',
+			articlepath: '/wiki',
+			sparqlEndpoint: ENDPOINT,
+		}),
 	});
 }
 
 function contextWithoutEndpoint() {
 	return fakeContext({
-		siteInfoCache: {
-			get: () => ({ server: 'https://test.wiki', articlepath: '/wiki' }),
-			set: () => {},
-			delete: () => {},
-		} as never,
+		wikiProbe: probeReporting({ server: 'https://test.wiki', articlepath: '/wiki' }),
 	});
 }
 
@@ -146,11 +138,7 @@ describe('wikibase-search-entities contains mode', () => {
 		const mockRequest = vi.fn().mockResolvedValue({ search: [] });
 		const ctx = fakeContext({
 			mwn: async () => ({ request: mockRequest }) as never,
-			siteInfoCache: {
-				get: () => ({ server: 'https://test.wiki', articlepath: '/wiki' }),
-				set: () => {},
-				delete: () => {},
-			} as never,
+			wikiProbe: probeReporting({ server: 'https://test.wiki', articlepath: '/wiki' }),
 		});
 
 		await wikibaseSearchEntities.handle(toolArgs(wikibaseSearchEntities, { query: 'edia' }), ctx);

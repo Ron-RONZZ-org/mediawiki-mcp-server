@@ -293,7 +293,7 @@ function englishLabel(entity: EntityResponse | undefined): string | undefined {
  * search. The result is cached per wiki key.
  */
 export async function resolveVocabulary(ctx: ToolContext): Promise<ResolvedVocabulary> {
-	const { key } = ctx.activeWiki.get();
+	const { key } = ctx.wiki;
 	let pending = cache.get(key);
 	if (pending === undefined) {
 		pending = doResolve(ctx).catch((error) => {

@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { CallToolResult } from '@modelcontextprotocol/server';
 import type { Tool } from '../runtime/tool.ts';
 import type { ToolContext } from '../runtime/context.ts';
-import { makeApiRequest } from '../transport/httpFetch.ts';
+import { makeApiRequest } from '../outbound/httpFetch.ts';
 
 const inputSchema = {
 	query: z.string().min(1).describe('Search terms for images (e.g. "Van Gogh sunflowers")'),

@@ -1,18 +1,11 @@
 import { z } from 'zod';
 import type { CallToolResult } from '@modelcontextprotocol/server';
-import type { ApiUploadParams } from 'types-mediawiki-api';
-import type { ApiUploadResponse } from 'mwn';
 import type { Tool } from '../runtime/tool.ts';
 import type { ToolContext } from '../runtime/context.ts';
-import { errorMessage } from '../errors/isErrnoException.ts';
-import { fetchFileBytes, shouldRescueToWiki } from '../transport/httpFetch.ts';
-import { formatEditComment, buildPageUrl } from '../wikis/utils.ts';
-import {
-	imageFactsSchema,
-	submitImageFacts,
-	wrapImageFactsFailure,
-	type ImageFacts,
-} from './imageFacts.ts';
+import { fileExists } from '../wikis/fileExistence.ts';
+import { formatEditComment } from '../wikis/utils.ts';
+import { uploadFromUrl } from '../wikis/fileUpload.ts';
+import { attachImageFacts, imageFactsSchema, type ImageFacts } from './imageFacts.ts';
 
 const inputSchema = {
 	url: z.string().url().describe('URL of the file to upload'),
@@ -42,63 +35,27 @@ export const uploadFileFromUrl: Tool<typeof inputSchema> = {
 		ctx: ToolContext,
 	): Promise<CallToolResult> {
 		const mwn = await ctx.mwn();
-		const baseParams: ApiUploadParams = {
-			comment: formatEditComment(ctx, 'upload-file-from-url', comment),
-		};
-
-		// Server-first: fetch the bytes ourselves (SSRF-guarded, size-capped) and
-		// upload via a normal multipart request, so the wiki needs no copy-upload
-		// config or upload_by_url right.
-		let bytes: Buffer | undefined;
-		try {
-			bytes = await fetchFileBytes(url);
-		} catch (error) {
-			if (!shouldRescueToWiki(error)) {
-				throw error;
-			}
-			// Reachability/size failure → fall through to wiki-side copy-upload.
+		// The upload ignores the wiki's warnings, `exists` among them, so the wiki
+		// would replace the file rather than refuse.
+		if (await fileExists(mwn, title)) {
+			return ctx.format.conflict(
+				`File "${title}" already exists. To replace it with a new revision, use update-file-from-url.`,
+			);
 		}
 
-		let data: ApiUploadResponse;
-		if (bytes !== undefined) {
-			const partName = title.replace(/^File:/, '');
-			data = await ctx.edit.submitUploadFromBytes(mwn, bytes, partName, title, text, baseParams);
-		} else {
-			const params = ctx.edit.applyTags<ApiUploadParams>(baseParams);
-			try {
-				data = await mwn.uploadFromUrl(url, title, text, params);
-			} catch (error) {
-				const errorText = errorMessage(error);
-				if (errorText.includes('copyuploaddisabled')) {
-					return ctx.format.error(
-						'upstream_failure',
-						`Could not retrieve the file from ${url}: the server could not reach it and the wiki has upload-by-URL disabled.`,
-						'copyuploaddisabled',
-					);
-				}
-				throw error;
-			}
-		}
-
-		const imageinfo = (
-			data as ApiUploadResponse & {
-				imageinfo?: { descriptionurl?: string; url?: string };
-			}
-		).imageinfo;
-		const filename = data.filename ?? title.replace(/^File:/, '');
 		const facts: ImageFacts = { description, license, author, licenseInfo, sourceUrl };
-		let imageFacts: { itemId?: string; warning?: string };
-		try {
-			imageFacts = await submitImageFacts(ctx, mwn, `File:${filename}`, facts);
-		} catch (error) {
-			throw wrapImageFactsFailure(`File:${filename}`, error);
-		}
-		return ctx.format.ok({
-			filename,
-			pageUrl: imageinfo?.descriptionurl ?? (await buildPageUrl(ctx, `File:${filename}`)),
-			...(imageinfo?.url !== undefined ? { fileUrl: imageinfo.url } : {}),
-			...(imageFacts.itemId !== undefined ? { imageItemId: imageFacts.itemId } : {}),
-			...(imageFacts.warning !== undefined ? { imageFactsWarning: imageFacts.warning } : {}),
-		});
+		return uploadFromUrl(
+			ctx,
+			mwn,
+			{
+				url,
+				title,
+				text,
+				params: {
+					comment: formatEditComment(ctx, 'upload-file-from-url', comment),
+				},
+			},
+			async (payload) => attachImageFacts(ctx, mwn, `File:${payload.filename}`, facts),
+		);
 	},
 };

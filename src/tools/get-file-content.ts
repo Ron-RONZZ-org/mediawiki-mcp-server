@@ -249,7 +249,7 @@ export const getFileContent: Tool<typeof inputSchema> = {
 			);
 		}
 
-		const wikiKey = ctx.activeWiki.get().key;
+		const wikiKey = ctx.wiki.key;
 		const captionParts = [`File: ${page.title}`, `Wiki: ${wikiKey}`];
 		const content: Array<TextContent | ImageContent> = [];
 

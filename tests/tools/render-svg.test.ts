@@ -7,6 +7,7 @@ import { renderSvg } from '../../src/tools/render-svg.ts';
 import { svgAspectRatio } from '../../src/tools/svgRender.ts';
 import { dispatch } from '../../src/runtime/dispatcher.ts';
 import { fakeContext } from '../helpers/fakeContext.ts';
+import { UploadDirsImpl } from '../../src/wikis/uploadDirs.ts';
 
 const SIMPLE_SVG =
 	'<svg xmlns="http://www.w3.org/2000/svg" width="100" height="50" viewBox="0 0 100 50">' +
@@ -108,7 +109,7 @@ describe('svgAspectRatio', () => {
 		try {
 			const result = await dispatch(
 				renderSvg,
-				fakeContext({ uploadDirs: { list: () => [dir] } }),
+				fakeContext({ uploadDirs: new UploadDirsImpl([dir]) }),
 			)({ path: file } as never);
 
 			expect(result.isError).toBeUndefined();
@@ -127,7 +128,7 @@ describe('svgAspectRatio', () => {
 		try {
 			const result = await dispatch(
 				renderSvg,
-				fakeContext({ uploadDirs: { list: () => [join(dir, 'other')] } }),
+				fakeContext({ uploadDirs: new UploadDirsImpl([join(dir, 'other')]) }),
 			)({ path: file } as never);
 
 			expect(result.isError).toBe(true);

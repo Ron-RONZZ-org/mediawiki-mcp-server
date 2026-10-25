@@ -1,50 +1,29 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { createMockMwn } from '../helpers/mock-mwn.ts';
+import { createMockMwn, type MockMwn } from '../helpers/mock-mwn.ts';
 import { createMockMwnError } from '../helpers/mock-mwn-error.ts';
-import { fakeContext } from '../helpers/fakeContext.ts';
-
-vi.mock('../../src/transport/uploadGuard.ts', async () => {
-	const actual = await vi.importActual<typeof import('../../src/transport/uploadGuard.ts')>(
-		'../../src/transport/uploadGuard.ts',
-	);
-	return {
-		...actual,
-		assertAllowedPath: vi.fn(),
-	};
-});
-
-vi.mock('../../src/transport/uploadBytes.ts', () => ({
-	readUploadBytes: vi.fn(),
-}));
-
-import { assertAllowedPath, UploadValidationError } from '../../src/transport/uploadGuard.ts';
-import { readUploadBytes } from '../../src/transport/uploadBytes.ts';
+import { fakeContext, contextOn, uploadDirsResolving } from '../helpers/fakeContext.ts';
 import { uploadFile } from '../../src/tools/upload-file.ts';
 import { dispatch } from '../../src/runtime/dispatcher.ts';
 import { assertStructuredError, assertStructuredSuccess } from '../helpers/structuredResult.ts';
+import { FILE_EXISTS, FILE_MISSING } from '../helpers/uploadingWiki.ts';
 
 // fakeContext's edit slice throws on any method a test leaves unstubbed.
 const baseEdit = fakeContext().edit;
 
+// A wiki that does not hold the file yet, so an upload to it goes ahead.
+function wikiWithoutFile(): MockMwn {
+	return createMockMwn({ request: vi.fn().mockResolvedValue(FILE_MISSING) });
+}
+
 describe('upload-file', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		vi.mocked(readUploadBytes).mockResolvedValue(Buffer.from('cat-bytes'));
 	});
 
-	it('categorises UploadValidationError as invalid_input and does not call the upload', async () => {
-		vi.mocked(assertAllowedPath).mockRejectedValue(
-			new UploadValidationError(
-				'"/etc/passwd" is not allowed by the configured upload directories.',
-			),
-		);
-		const mock = createMockMwn({ upload: vi.fn() });
-		const submitUploadFromBytes = vi.fn();
-		const ctx = fakeContext({
-			mwn: async () => mock as never,
-			edit: { ...baseEdit, submitUploadFromBytes },
-			uploadDirs: { list: () => ['/home/user/uploads'] },
-		});
+	it('refuses a path the upload directories reject as invalid_input, without uploading', async () => {
+		const mock = wikiWithoutFile();
+		const submitUpload = vi.fn();
+		const ctx = contextOn(mock, { edit: { ...baseEdit, submitUpload } });
 
 		const result = await uploadFile.handle(
 			{
@@ -56,19 +35,19 @@ describe('upload-file', () => {
 		);
 
 		const envelope = assertStructuredError(result, 'invalid_input');
-		expect(envelope.message).toMatch(/Failed to upload file:.*not allowed/);
-		expect(submitUploadFromBytes).not.toHaveBeenCalled();
-		expect(readUploadBytes).not.toHaveBeenCalled();
+		expect(envelope.message).toMatch(/Failed to upload file: uploads are disabled/);
+		expect(submitUpload).not.toHaveBeenCalled();
 	});
 
-	it('lets unexpected guard errors fall through to the dispatcher', async () => {
-		vi.mocked(assertAllowedPath).mockRejectedValue(new Error('Connection refused'));
-		const mock = createMockMwn({ upload: vi.fn() });
-		const submitUploadFromBytes = vi.fn();
-		const ctx = fakeContext({
-			mwn: async () => mock as never,
-			edit: { ...baseEdit, submitUploadFromBytes },
-			uploadDirs: { list: () => ['/home/user/uploads'] },
+	it('lets unexpected path-resolution errors fall through to the dispatcher', async () => {
+		const mock = wikiWithoutFile();
+		const submitUpload = vi.fn();
+		const ctx = contextOn(mock, {
+			edit: { ...baseEdit, submitUpload },
+			uploadDirs: {
+				list: () => ['/home/user/uploads'],
+				resolve: () => Promise.reject(new Error('EACCES: permission denied')),
+			},
 		});
 
 		const result = await dispatch(
@@ -81,14 +60,13 @@ describe('upload-file', () => {
 		});
 
 		const envelope = assertStructuredError(result, 'upstream_failure');
-		expect(envelope.message).toMatch(/Failed to upload file: Connection refused/);
-		expect(submitUploadFromBytes).not.toHaveBeenCalled();
+		expect(envelope.message).toMatch(/Failed to upload file: EACCES: permission denied/);
+		expect(submitUpload).not.toHaveBeenCalled();
 	});
 
-	it('returns a structured payload on success and routes through ctx.edit.submitUploadFromBytes', async () => {
-		vi.mocked(assertAllowedPath).mockResolvedValue('/var/lib/uploads/cat.jpg');
-		const mock = createMockMwn({ upload: vi.fn() });
-		const submitUploadFromBytes = vi.fn().mockResolvedValue({
+	it('returns a structured payload on success and routes through ctx.edit.submitUpload', async () => {
+		const mock = wikiWithoutFile();
+		const submitUpload = vi.fn().mockResolvedValue({
 			result: 'Success',
 			filename: 'Cat.jpg',
 			imageinfo: {
@@ -96,10 +74,9 @@ describe('upload-file', () => {
 				url: 'https://test.wiki/images/Cat.jpg',
 			},
 		});
-		const ctx = fakeContext({
-			mwn: async () => mock as never,
-			edit: { ...baseEdit, submitUploadFromBytes },
-			uploadDirs: { list: () => ['/home/user/uploads'] },
+		const ctx = contextOn(mock, {
+			edit: { ...baseEdit, submitUpload },
+			uploadDirs: uploadDirsResolving('/var/lib/uploads/cat.jpg'),
 		});
 
 		const result = await uploadFile.handle(
@@ -116,10 +93,9 @@ describe('upload-file', () => {
 		expect(text).toContain('Page URL: https://test.wiki/wiki/File:Cat.jpg');
 		expect(text).toContain('File URL: https://test.wiki/images/Cat.jpg');
 
-		expect(submitUploadFromBytes).toHaveBeenCalledWith(
+		expect(submitUpload).toHaveBeenCalledWith(
 			mock,
-			Buffer.from('cat-bytes'),
-			'Cat.jpg',
+			'/var/lib/uploads/cat.jpg',
 			'File:Cat.jpg',
 			'A cat.',
 			expect.objectContaining({
@@ -128,43 +104,55 @@ describe('upload-file', () => {
 		);
 	});
 
-	it('passes ctx.uploadDirs.list() to the path guard', async () => {
-		vi.mocked(assertAllowedPath).mockResolvedValue('/home/user/uploads/x.jpg');
-		const mock = createMockMwn();
-		const submitUploadFromBytes = vi.fn().mockResolvedValue({ result: 'Success' });
-		const ctx = fakeContext({
-			mwn: async () => mock as never,
-			edit: { ...baseEdit, submitUploadFromBytes },
-			uploadDirs: { list: () => ['/home/user/uploads'] },
+	it('fails as conflict when the file already exists, without uploading over it', async () => {
+		const mock = createMockMwn({ request: vi.fn().mockResolvedValue(FILE_EXISTS) });
+		const submitUpload = vi.fn().mockResolvedValue({ result: 'Success', filename: 'Cat.jpg' });
+		const ctx = contextOn(mock, {
+			edit: { ...baseEdit, submitUpload },
+			uploadDirs: uploadDirsResolving('/home/user/uploads/cat.jpg'),
 		});
 
-		await uploadFile.handle(
-			{
-				filepath: '/home/user/uploads/x.jpg',
-				title: 'File:X',
-				text: 'body',
-			},
+		const result = await uploadFile.handle(
+			{ filepath: '/home/user/uploads/cat.jpg', title: 'File:Cat.jpg', text: 'A cat.' },
 			ctx,
 		);
 
-		expect(assertAllowedPath).toHaveBeenCalledWith('/home/user/uploads/x.jpg', [
-			'/home/user/uploads',
-		]);
+		const envelope = assertStructuredError(result, 'conflict');
+		expect(envelope.message).toContain('update-file');
+		expect(submitUpload).not.toHaveBeenCalled();
+	});
+
+	it('dispatches permissiondenied as permission_denied via dispatcher', async () => {
+		const mock = wikiWithoutFile();
+		const submitUpload = vi.fn().mockRejectedValue(createMockMwnError('permissiondenied'));
+		const ctx = contextOn(mock, {
+			edit: { ...baseEdit, submitUpload },
+			uploadDirs: uploadDirsResolving('/var/lib/uploads/cat.jpg'),
+		});
+
+		const result = await dispatch(
+			uploadFile,
+			ctx,
+		)({
+			filepath: '/home/user/uploads/cat.jpg',
+			title: 'File:Cat.jpg',
+			text: 'A cat.',
+		});
+
+		assertStructuredError(result, 'permission_denied', 'permissiondenied');
 	});
 
 	it('attaches semantic image facts and returns the item id', async () => {
-		vi.mocked(assertAllowedPath).mockResolvedValue('/var/lib/uploads/cat.jpg');
-		const mock = createMockMwn({ upload: vi.fn() });
-		const submitUploadFromBytes = vi.fn().mockResolvedValue({
+		const mock = wikiWithoutFile();
+		const submitUpload = vi.fn().mockResolvedValue({
 			result: 'Success',
 			filename: 'Cat.jpg',
 			imageinfo: { descriptionurl: 'https://test.wiki/wiki/File:Cat.jpg' },
 		});
 		const submit = vi.fn().mockResolvedValue({ imagefacts: { itemId: 'Q999' } });
-		const ctx = fakeContext({
-			mwn: async () => mock as never,
-			edit: { ...baseEdit, submitUploadFromBytes, submit },
-			uploadDirs: { list: () => ['/home/user/uploads'] },
+		const ctx = contextOn(mock, {
+			edit: { ...baseEdit, submitUpload, submit },
+			uploadDirs: uploadDirsResolving('/var/lib/uploads/cat.jpg'),
 		});
 
 		const result = await uploadFile.handle(
@@ -198,14 +186,12 @@ describe('upload-file', () => {
 	});
 
 	it('does not call imagefacts when no facts are supplied', async () => {
-		vi.mocked(assertAllowedPath).mockResolvedValue('/var/lib/uploads/cat.jpg');
-		const mock = createMockMwn({ upload: vi.fn() });
-		const submitUploadFromBytes = vi.fn().mockResolvedValue({ result: 'Success' });
+		const mock = wikiWithoutFile();
+		const submitUpload = vi.fn().mockResolvedValue({ result: 'Success' });
 		const submit = vi.fn();
-		const ctx = fakeContext({
-			mwn: async () => mock as never,
-			edit: { ...baseEdit, submitUploadFromBytes, submit },
-			uploadDirs: { list: () => ['/home/user/uploads'] },
+		const ctx = contextOn(mock, {
+			edit: { ...baseEdit, submitUpload, submit },
+			uploadDirs: uploadDirsResolving('/var/lib/uploads/cat.jpg'),
 		});
 
 		await uploadFile.handle(
@@ -217,20 +203,16 @@ describe('upload-file', () => {
 	});
 
 	it('reports a warning when the wiki has no imagefacts action', async () => {
-		vi.mocked(assertAllowedPath).mockResolvedValue('/var/lib/uploads/cat.jpg');
-		const mock = createMockMwn({ upload: vi.fn() });
-		const submitUploadFromBytes = vi
-			.fn()
-			.mockResolvedValue({ result: 'Success', filename: 'Cat.jpg' });
+		const mock = wikiWithoutFile();
+		const submitUpload = vi.fn().mockResolvedValue({ result: 'Success', filename: 'Cat.jpg' });
 		const submit = vi
 			.fn()
 			.mockRejectedValue(
 				createMockMwnError('badvalue', 'Unrecognized value for parameter "action": imagefacts.'),
 			);
-		const ctx = fakeContext({
-			mwn: async () => mock as never,
-			edit: { ...baseEdit, submitUploadFromBytes, submit },
-			uploadDirs: { list: () => ['/home/user/uploads'] },
+		const ctx = contextOn(mock, {
+			edit: { ...baseEdit, submitUpload, submit },
+			uploadDirs: uploadDirsResolving('/var/lib/uploads/cat.jpg'),
 		});
 
 		const result = await uploadFile.handle(
@@ -249,16 +231,12 @@ describe('upload-file', () => {
 	});
 
 	it('reports the successful upload when attaching facts fails', async () => {
-		vi.mocked(assertAllowedPath).mockResolvedValue('/var/lib/uploads/cat.jpg');
-		const mock = createMockMwn({ upload: vi.fn() });
-		const submitUploadFromBytes = vi
-			.fn()
-			.mockResolvedValue({ result: 'Success', filename: 'Cat.jpg' });
+		const mock = wikiWithoutFile();
+		const submitUpload = vi.fn().mockResolvedValue({ result: 'Success', filename: 'Cat.jpg' });
 		const submit = vi.fn().mockRejectedValue(createMockMwnError('permissiondenied'));
-		const ctx = fakeContext({
-			mwn: async () => mock as never,
-			edit: { ...baseEdit, submitUploadFromBytes, submit },
-			uploadDirs: { list: () => ['/home/user/uploads'] },
+		const ctx = contextOn(mock, {
+			edit: { ...baseEdit, submitUpload, submit },
+			uploadDirs: uploadDirsResolving('/var/lib/uploads/cat.jpg'),
 		});
 
 		const result = await dispatch(
@@ -274,27 +252,5 @@ describe('upload-file', () => {
 		const envelope = assertStructuredError(result, 'permission_denied');
 		expect(envelope.message).toContain('uploaded as File:Cat.jpg');
 		expect(envelope.message).toContain('attaching image facts failed');
-	});
-
-	it('dispatches permissiondenied as permission_denied via dispatcher', async () => {
-		vi.mocked(assertAllowedPath).mockResolvedValue('/var/lib/uploads/cat.jpg');
-		const mock = createMockMwn();
-		const submitUploadFromBytes = vi.fn().mockRejectedValue(createMockMwnError('permissiondenied'));
-		const ctx = fakeContext({
-			mwn: async () => mock as never,
-			edit: { ...baseEdit, submitUploadFromBytes },
-			uploadDirs: { list: () => ['/home/user/uploads'] },
-		});
-
-		const result = await dispatch(
-			uploadFile,
-			ctx,
-		)({
-			filepath: '/home/user/uploads/cat.jpg',
-			title: 'File:Cat.jpg',
-			text: 'A cat.',
-		});
-
-		assertStructuredError(result, 'permission_denied', 'permissiondenied');
 	});
 });

@@ -3,7 +3,8 @@ import type { CallToolResult } from '@modelcontextprotocol/server';
 import type { Tool } from '../runtime/tool.ts';
 import type { ManagementContext } from '../runtime/context.ts';
 import { discoverWiki } from '../wikis/wikiDiscovery.ts';
-import { SsrfValidationError } from '../transport/ssrfGuard.ts';
+import { callDeadline, WIKI_CONNECT_TIMEOUT_MS } from '../runtime/callDeadline.ts';
+import { SsrfValidationError } from '../outbound/ssrfGuard.ts';
 import { DuplicateWikiKeyError } from '../wikis/wikiRegistry.ts';
 
 const inputSchema = {
@@ -16,6 +17,7 @@ const inputSchema = {
 export const addWiki: Tool<typeof inputSchema, ManagementContext> = {
 	name: 'add-wiki',
 	wikiScoped: false,
+	offeredWhen: (c) => c.allowManagement,
 	description:
 		'Registers a new wiki as an MCP resource by fetching its sitename and API configuration from any URL on the wiki (e.g. a page URL). The wiki becomes available at mcp://wikis/<servername> and can be targeted by passing its key as the `wiki` argument to any wiki tool. Fails if the URL is not a MediaWiki wiki or if a wiki with the same key is already registered.',
 	inputSchema,
@@ -32,7 +34,7 @@ export const addWiki: Tool<typeof inputSchema, ManagementContext> = {
 	async handle({ wikiUrl }, ctx: ManagementContext): Promise<CallToolResult> {
 		let wikiInfo;
 		try {
-			wikiInfo = await discoverWiki(wikiUrl);
+			wikiInfo = await discoverWiki(wikiUrl, callDeadline(WIKI_CONNECT_TIMEOUT_MS, 'connecting'));
 		} catch (error) {
 			if (error instanceof SsrfValidationError) {
 				return ctx.format.invalidInput(`Failed to add wiki: ${error.message}`);

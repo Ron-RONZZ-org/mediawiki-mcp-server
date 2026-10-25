@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { CallToolResult } from '@modelcontextprotocol/server';
 import type { Tool } from '../runtime/tool.ts';
 import type { ToolContext } from '../runtime/context.ts';
+import { pageNotFound, revisionNotFound } from '../errors/tailoredErrors.ts';
 import { inlineDiffToText } from '../results/diffFormat.ts';
 import { truncateByBytes } from '../results/truncation.ts';
 
@@ -157,7 +158,7 @@ function buildPayload(
 export const comparePages: Tool<typeof inputSchema> = {
 	name: 'compare-pages',
 	description:
-		'Returns the changes between two versions of a wiki page as a compact text diff. Each side accepts a revision ID, page title (latest revision), or supplied wikitext; text-vs-text is rejected. Only the changes are returned over the wire. For the full text of both sides, fetch with get-page instead. If a title or revision ID does not exist, an error is returned. Set includeDiff=false for a cheap change-detection response that skips diff rendering and returns just the change flag, revision metadata, and size delta. Diff output is truncated at 50000 bytes by default with a trailing marker; a narrower revision range or includeDiff=false avoids truncation.',
+		'Returns the changes between two versions of a wiki page as a compact text diff. Each side accepts a revision ID, page title (latest revision), or supplied wikitext; text-vs-text is rejected. Only the changes are returned over the wire. For the full text of both sides, fetch with get-page instead. If a title or revision ID does not exist, an error is returned. Set includeDiff=false for a cheap change-detection response that skips diff rendering and returns just the change flag, revision metadata, and size delta. Diff output is truncated at 75000 bytes by default, with a marker reporting how much of it was returned; a narrower revision range or includeDiff=false avoids truncation.',
 	inputSchema,
 	annotations: {
 		title: 'Compare pages',
@@ -167,6 +168,7 @@ export const comparePages: Tool<typeof inputSchema> = {
 		openWorldHint: true,
 	},
 	failureVerb: 'compare pages',
+	tailoredErrors: { missingtitle: pageNotFound, nosuchrevid: revisionNotFound },
 
 	async handle(args, ctx: ToolContext): Promise<CallToolResult> {
 		const sideError = validateSide('from', args) ?? validateSide('to', args);
