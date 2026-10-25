@@ -3,7 +3,7 @@
   "name": "io.github.ProfessionalWiki/mediawiki-mcp-server",
   "title": "MediaWiki MCP Server",
   "description": "MCP server enabling AI clients to interact with any MediaWiki wiki through standard tools",
-  "version": "0.17.0",
+  "version": "0.20.0",
   "repository": {
     "url": "https://github.com/ProfessionalWiki/MediaWiki-MCP-Server",
     "source": "github"
@@ -11,8 +11,8 @@
   "packages": [
     {
       "registryType": "mcpb",
-      "identifier": "https://github.com/ProfessionalWiki/MediaWiki-MCP-Server/releases/download/v0.17.0/MediaWiki-MCP-Server.mcpb",
-      "fileSha256": "2004fcb521e24a73aaca98eadfde132df7cbb6fcf7b5814100a77b52a2188ed4",
+      "identifier": "https://github.com/ProfessionalWiki/MediaWiki-MCP-Server/releases/download/v0.20.0/MediaWiki-MCP-Server.mcpb",
+      "fileSha256": "1cf1aeff1faff4e46ed40cb3f809a532ce82ed26c3a5ad34bb5d7470155d5835",
       "transport": {
         "type": "stdio"
       },
@@ -31,7 +31,7 @@
           "name": "MCP_CONTENT_MAX_BYTES",
           "description": "Byte cap for the content bodies and result blocks tools return (wikitext, rendered HTML, diffs, statement and row listings). An oversized response is truncated with a trailing marker describing what was left out.",
           "format": "number",
-          "default": "50000"
+          "default": "75000"
         },
         {
           "name": "MCP_FILE_DATA_MAX_BYTES",
@@ -112,6 +112,10 @@
           "default": "104857600"
         },
         {
+          "name": "MCP_USER_AGENT",
+          "description": "Replaces the User-Agent header of every outbound request, which defaults to mediawiki-mcp-server/<version> (https://github.com/ProfessionalWiki/MediaWiki-MCP-Server). If you set it, give a name and an email or URL, e.g. 'ExampleBot/1.0 (bot@example.org)'."
+        },
+        {
           "name": "PORT",
           "description": "Port used for StreamableHTTP transport",
           "format": "number",
@@ -122,7 +126,7 @@
     {
       "registryType": "npm",
       "identifier": "@professional-wiki/mediawiki-mcp-server",
-      "version": "0.17.0",
+      "version": "0.20.0",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"
@@ -142,7 +146,7 @@
           "name": "MCP_CONTENT_MAX_BYTES",
           "description": "Byte cap for the content bodies and result blocks tools return (wikitext, rendered HTML, diffs, statement and row listings). An oversized response is truncated with a trailing marker describing what was left out.",
           "format": "number",
-          "default": "50000"
+          "default": "75000"
         },
         {
           "name": "MCP_FILE_DATA_MAX_BYTES",
@@ -221,6 +225,10 @@
           "description": "Memory cap on the server-side fetch used by upload-file-from-url and update-file-from-url. Files larger than this are routed to the wiki's own copy-upload instead of being buffered by the server. Guards this server's memory, not the wiki's $wgMaxUploadSize.",
           "format": "number",
           "default": "104857600"
+        },
+        {
+          "name": "MCP_USER_AGENT",
+          "description": "Replaces the User-Agent header of every outbound request, which defaults to mediawiki-mcp-server/<version> (https://github.com/ProfessionalWiki/MediaWiki-MCP-Server). If you set it, give a name and an email or URL, e.g. 'ExampleBot/1.0 (bot@example.org)'."
         },
         {
           "name": "PORT",

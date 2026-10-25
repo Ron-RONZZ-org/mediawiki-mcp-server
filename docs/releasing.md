@@ -43,3 +43,6 @@ The `release` GitHub workflow triggers automatically on the tag and:
 - Builds the `.mcpb` bundle and attaches it to a new [GitHub Release](https://github.com/ProfessionalWiki/MediaWiki-MCP-Server/releases), using the new `CHANGELOG.md` section as the release body.
 - Publishes the package to [NPM](https://www.npmjs.com/package/@professional-wiki/mediawiki-mcp-server).
 - Publishes to the [MCP Registry](https://registry.modelcontextprotocol.io/v0/servers?search=io.github.professionalwiki/mediawiki-mcp-server).
+
+If one of those steps fails, re-run its job on its own from the failed run. A re-run replays the workflow file as it
+stood at the tagged commit, so a fix to the workflow itself only takes effect from the next tag.

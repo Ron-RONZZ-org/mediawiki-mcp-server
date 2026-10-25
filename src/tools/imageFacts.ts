@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import type { Mwn } from 'mwn';
 import type { ToolContext } from '../runtime/context.ts';
-import { errorMessage, isErrnoException } from '../errors/isErrnoException.ts';
+import { errorMessage } from '../errors/errorMessage.ts';
+import { isErrnoException } from '../errors/isErrnoException.ts';
 
 /**
  * Optional semantic image facts an upload can carry. On wikis running the
@@ -154,5 +155,33 @@ export async function submitImageFacts(
 			};
 		}
 		throw error;
+	}
+}
+
+/**
+ * Runs the facts step after a successful upload and returns the fields to add
+ * to the upload response. An upload that succeeded must not be reported as a
+ * failed call because the facts step did, so every failure is wrapped with the
+ * upload outcome; `hasImageFacts` keeps a plain upload free of the extra call.
+ */
+export async function attachImageFacts(
+	ctx: ToolContext,
+	mwn: Mwn,
+	title: string,
+	facts: ImageFacts,
+	options: ImageFactsOptions = {},
+	uploaded = true,
+): Promise<Record<string, unknown>> {
+	if (!hasImageFacts(facts, options.clear)) {
+		return {};
+	}
+	try {
+		const result = await submitImageFacts(ctx, mwn, title, facts, options);
+		return {
+			...(result.itemId !== undefined ? { imageItemId: result.itemId } : {}),
+			...(result.warning !== undefined ? { imageFactsWarning: result.warning } : {}),
+		};
+	} catch (error) {
+		throw wrapImageFactsFailure(title, error, uploaded);
 	}
 }

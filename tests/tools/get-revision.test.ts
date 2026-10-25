@@ -1,12 +1,116 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { createMockMwn } from '../helpers/mock-mwn.ts';
-import { fakeContext } from '../helpers/fakeContext.ts';
+import { contextOn } from '../helpers/fakeContext.ts';
 import { getRevision } from '../../src/tools/get-revision.ts';
 import { dispatch } from '../../src/runtime/dispatcher.ts';
 import { ContentFormat } from '../../src/results/contentFormat.ts';
 import { assertStructuredError, assertStructuredSuccess } from '../helpers/structuredResult.ts';
 
 describe('get-revision', () => {
+	// A past revision was the one read this server never capped, so a caller could
+	// be handed several megabytes where every sibling read stops at the budget.
+	describe('content cap', () => {
+		afterEach(() => {
+			vi.unstubAllEnvs();
+		});
+
+		function revisionWith(content: string, lastrevid = 42) {
+			return createMockMwn({
+				request: vi.fn().mockResolvedValue({
+					query: {
+						pages: [{ pageid: 1, title: 'Big', lastrevid, revisions: [{ revid: 42, content }] }],
+					},
+				}),
+			});
+		}
+
+		it('truncates source at the byte cap and says how much it withheld', async () => {
+			vi.stubEnv('MCP_CONTENT_MAX_BYTES', '500');
+			const ctx = contextOn(revisionWith('x'.repeat(501)));
+
+			const result = await getRevision.handle(
+				{ revisionId: 42, content: ContentFormat.source, metadata: false },
+				ctx,
+			);
+
+			const text = assertStructuredSuccess(result);
+			expect(text).toMatch(/Source:\n\nx{500}\n/);
+			expect(text).toContain('  Reason: content-truncated');
+			expect(text).toContain('  Returned bytes: 500');
+			expect(text).toContain('  Total bytes: 501');
+			expect(text).toContain('  Tool name: get-revision');
+		});
+
+		it('leaves source alone at exactly the cap', async () => {
+			vi.stubEnv('MCP_CONTENT_MAX_BYTES', '500');
+			const ctx = contextOn(revisionWith('x'.repeat(500)));
+
+			const result = await getRevision.handle(
+				{ revisionId: 42, content: ContentFormat.source, metadata: false },
+				ctx,
+			);
+
+			const text = assertStructuredSuccess(result);
+			expect(text).not.toContain('Truncation:');
+		});
+
+		it('truncates rendered HTML too', async () => {
+			vi.stubEnv('MCP_CONTENT_MAX_BYTES', '500');
+			const mock = createMockMwn({
+				request: vi.fn().mockResolvedValue({
+					parse: { title: 'Big', pageid: 1, text: '<p>' + 'x'.repeat(501) + '</p>' },
+				}),
+			});
+			const ctx = contextOn(mock);
+
+			const result = await getRevision.handle(
+				{ revisionId: 42, content: ContentFormat.html, metadata: false },
+				ctx,
+			);
+
+			const text = assertStructuredSuccess(result);
+			expect(text).toContain('  Item noun: HTML');
+			expect(text).toContain('  Returned bytes: 500');
+			// Rendering HTML alone makes no revisions query, so which revision this
+			// is cannot be known and the remedy names both routes.
+			expect(text).toContain('If this is the page');
+		});
+
+		// section= addresses the page as it stands, which is the same bytes only
+		// when the revision asked for is the current one.
+		it('sends a past revision to compare-pages', async () => {
+			vi.stubEnv('MCP_CONTENT_MAX_BYTES', '500');
+			const ctx = contextOn(revisionWith('x'.repeat(501), 99));
+
+			const result = await getRevision.handle(
+				{ revisionId: 42, content: ContentFormat.source, metadata: false },
+				ctx,
+			);
+
+			const text = assertStructuredSuccess(result);
+			expect(text).toContain('No narrower read of a past revision');
+			expect(text).toContain('compare-pages');
+			expect(text).not.toContain('Sections:');
+		});
+
+		// A revision ID taken from get-page metadata or from an edit that just
+		// landed is the current one, and section= reads exactly those bytes.
+		it('sends the current revision to get-page with a section', async () => {
+			vi.stubEnv('MCP_CONTENT_MAX_BYTES', '500');
+			const ctx = contextOn(revisionWith('x'.repeat(501), 42));
+
+			const result = await getRevision.handle(
+				{ revisionId: 42, content: ContentFormat.source, metadata: false },
+				ctx,
+			);
+
+			const text = assertStructuredSuccess(result);
+			expect(text).toContain('current revision');
+			expect(text).toContain('section=N');
+			expect(text).not.toContain('compare-pages');
+		});
+	});
+
 	it('returns source content from a specific revision', async () => {
 		const mock = createMockMwn({
 			request: vi.fn().mockResolvedValue({
@@ -32,7 +136,7 @@ describe('get-revision', () => {
 				},
 			}),
 		});
-		const ctx = fakeContext({ mwn: async () => mock as never });
+		const ctx = contextOn(mock);
 
 		const result = await getRevision.handle(
 			{ revisionId: 42, content: ContentFormat.source, metadata: false },
@@ -52,7 +156,7 @@ describe('get-revision', () => {
 				parse: { text: '<p>Hello</p>' },
 			}),
 		});
-		const ctx = fakeContext({ mwn: async () => mock as never });
+		const ctx = contextOn(mock);
 
 		const result = await getRevision.handle(
 			{ revisionId: 42, content: ContentFormat.html, metadata: false },
@@ -88,7 +192,7 @@ describe('get-revision', () => {
 				},
 			}),
 		});
-		const ctx = fakeContext({ mwn: async () => mock as never });
+		const ctx = contextOn(mock);
 
 		const result = await getRevision.handle(
 			{ revisionId: 42, content: ContentFormat.none, metadata: true },
@@ -116,7 +220,7 @@ describe('get-revision', () => {
 				},
 			}),
 		});
-		const ctx = fakeContext({ mwn: async () => mock as never });
+		const ctx = contextOn(mock);
 
 		const result = await getRevision.handle(
 			{ revisionId: 99999, content: ContentFormat.source, metadata: false },
@@ -131,7 +235,7 @@ describe('get-revision', () => {
 		const mock = createMockMwn({
 			request: vi.fn().mockRejectedValue(new Error('API error')),
 		});
-		const ctx = fakeContext({ mwn: async () => mock as never });
+		const ctx = contextOn(mock);
 
 		const result = await dispatch(
 			getRevision,

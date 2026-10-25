@@ -3,31 +3,50 @@ import type { CallToolResult } from '@modelcontextprotocol/server';
 import type { Mwn } from 'mwn';
 import type { Tool } from '../runtime/tool.ts';
 import type { ToolContext } from '../runtime/context.ts';
-import { buildPageUrl, formatEditComment } from '../wikis/utils.ts';
-import { childrenOf } from '../services/sectionSubtree.ts';
+import { sectionNotFound } from '../errors/tailoredErrors.ts';
+import { formatEditComment } from '../wikis/utils.ts';
+import { findReplaceSplice } from '../services/findReplace.ts';
+import { submitPageEdit } from '../services/pageEdit.ts';
+import { sectionHeadingError } from '../services/sectionHeadingGuard.ts';
+import { subsectionRemovalError } from '../services/subsectionGuard.ts';
+import { unreadContentError } from '../services/unreadContentGuard.ts';
 
-interface ApiEditResponse {
-	result?: string;
-	pageid?: number;
-	title?: string;
-	newrevid?: number;
-	newtimestamp?: string;
-	contentmodel?: string;
-}
+const OPERATIONS = ['replace', 'append', 'prepend', 'find-replace'] as const;
+type Operation = (typeof OPERATIONS)[number];
 
 // `section='new'` was removed; a caller sending it gets this instead of a bare
 // type error naming a number. Delete this constant and the `error` function
 // below once the release carrying that removal has shipped — see the Breaking
 // changes entry in CHANGELOG.md.
 const SECTION_NEW_REMOVED =
-	'update-page no longer creates sections. To add one, use mode=\'append\' with a source that begins with the heading, for example "\\n\\n== History ==\\n\\nBody.".';
+	'update-page no longer creates sections. To add one, use operation=\'append\' with a source that begins with the heading, for example "\\n\\n== History ==\\n\\nBody.".';
 
 const inputSchema = {
 	title: z.string().describe('Wiki page title'),
+	operation: z
+		.enum(OPERATIONS)
+		.optional()
+		.describe(
+			"What the write does to the target: 'replace' overwrites it with source, 'append' and 'prepend' add source to it, and 'find-replace' rewrites only the text find names and leaves the rest of the target byte for byte. With section=N, 'append' writes at the end of that section and 'prepend' immediately above that section's heading, which inserts a new section before an existing one. Defaults to 'replace'.",
+		),
 	source: z
 		.string()
+		.optional()
 		.describe(
-			"The content to write, in the existing page's content model. Interpreted as the full page by default; as the given section's content when section is set; or as a delta (appended or prepended) when mode is set. A section replace includes the section heading: begin the source with that heading (get-page with section set returns it), or with a new heading at the same level to rename the section. A source that does not open with a heading at the section's level is refused, because it would delete the heading. An appended source that opens a new section must begin on its own line, as in \"\\n\\n== History ==\\n\\nBody.\"; without the leading newline the heading runs on from the last line of the page and is not recognised as a heading.",
+			'The content to write, in the existing page\'s content model. Required for every operation except find-replace, and refused for that one. A section replace includes the section heading: begin the source with that heading (get-page with section set returns it), or with a new heading at the same level to rename the section. A source that does not open with a heading at the section\'s level is refused, because it would delete the heading. An appended source that opens a new section must begin on its own line, as in "\\n\\n== History ==\\n\\nBody."; without the leading newline the heading runs on from the last line of the page and is not recognised as a heading.',
+		),
+	find: z
+		.string()
+		.min(1)
+		.optional()
+		.describe(
+			"The existing wikitext to rewrite, matched in full and exactly, whitespace and template markup included. Required when operation is 'find-replace'. A find that matches nothing, or more than one place, is refused without writing: extend it with the text around it to name one occurrence.",
+		),
+	replaceWith: z
+		.string()
+		.optional()
+		.describe(
+			"What find becomes. Required when operation is 'find-replace'; an empty string deletes the text find matched.",
 		),
 	latestId: z
 		.number()
@@ -35,7 +54,7 @@ const inputSchema = {
 		.positive()
 		.optional()
 		.describe(
-			'Base revision ID for edit-conflict detection; obtain from get-page with metadata=true. If omitted, the update is applied without conflict detection.',
+			'Base revision ID for edit-conflict detection; any get-page read that returns wikitext reports it as latestRevisionId. Required when section is set, because the wiki resolves a section number against this revision rather than against whichever is current. If omitted on a write that is not scoped to a section, the update is applied without conflict detection.',
 		),
 	comment: z.string().optional().describe('Summary of the edit'),
 	section: z
@@ -46,19 +65,25 @@ const inputSchema = {
 		.nonnegative()
 		.optional()
 		.describe(
-			'Section number (0 = lead; 1..N = heading sections). Replaces that section including its heading, along with every subsection nested under it; see removeSubsections.',
+			'Section number (0 = lead; 1..N = heading sections), from the section list get-page reports. Confines the write to that section: omit it to act on the whole page. A replace also takes out every subsection nested under the section; see removeSubsections.',
 		),
 	mode: z
 		.enum(['append', 'prepend'])
 		.optional()
 		.describe(
-			"Adds source to the existing content instead of replacing it: 'append' to the end, 'prepend' to the start.",
+			"Deprecated older spelling of operation='append' and operation='prepend'. Send operation instead.",
 		),
 	bot: z
 		.boolean()
 		.optional()
 		.describe(
 			'Marks the edit as a bot edit, which Special:RecentChanges hides by default. Takes effect only when the authenticated account has the `bot` right (granted by the bot group, or by the high-volume grant on a bot password or OAuth consumer); without it the edit saves unflagged and the response reports botMarked: false. Use when performing bulk or automated edit runs, or when the user requests it.',
+		),
+	removeUnreadContent: z
+		.boolean()
+		.optional()
+		.describe(
+			'Confirms that replacing content larger than a single read returns is meant to discard the part that was never returned. Required only when the target holds more bytes than one response carries and source holds fewer.',
 		),
 	removeSubsections: z
 		.boolean()
@@ -70,112 +95,140 @@ const inputSchema = {
 
 type UpdatePageArgs = z.infer<z.ZodObject<typeof inputSchema>>;
 
-function buildEditParams(
+// The operation a call means, resolved once with the fields it needs already
+// narrowed. `mode` is the older spelling of the same choice and stays accepted.
+// Which fields an operation requires is a rule the flat schema cannot state —
+// every field is independently optional — so it is stated here instead, and
+// each refusal names both the field and the operation that decided it.
+type WritePlan =
+	| { readonly error: string }
+	| { readonly operation: 'find-replace'; readonly find: string; readonly replaceWith: string }
+	| { readonly operation: 'replace' | 'append' | 'prepend'; readonly source: string };
+
+function writePlan(args: UpdatePageArgs): WritePlan {
+	const { operation, mode, source, find, replaceWith, section, latestId } = args;
+	if (operation !== undefined && mode !== undefined && operation !== mode) {
+		return {
+			error: `operation is '${operation}' but mode is '${mode}'. mode is the older spelling of the same choice; send operation alone.`,
+		};
+	}
+	const resolved: Operation = operation ?? mode ?? 'replace';
+	// A section number is only meaningful alongside the revision it was read
+	// from: the wiki resolves it against whichever revision is current, so an
+	// index that has since shifted addresses a different section. Required for a
+	// replace alone, because that is where the mistake destroys the section it
+	// lands on; a delta put in the wrong section is misplaced, not lost, and
+	// shows in the diff. find-replace addresses its target by the text it
+	// matches rather than by position, so it is unaffected either way. Section 0
+	// is the lead, which no insertion can move, so there is no ambiguity to
+	// resolve and nothing to require.
+	if (resolved === 'replace' && section !== undefined && section > 0 && latestId === undefined) {
+		return {
+			error: `Section ${section} names a different section once the page changes, so replacing a section needs latestId to say which revision the number was read from. Any get-page read that returns wikitext reports it as latestRevisionId.`,
+		};
+	}
+	if (resolved === 'find-replace') {
+		if (find === undefined || replaceWith === undefined) {
+			return {
+				error:
+					"operation 'find-replace' needs find, the existing wikitext to rewrite, and replaceWith, what it becomes.",
+			};
+		}
+		if (source !== undefined) {
+			return {
+				error:
+					"operation 'find-replace' rewrites only the text find matches, so it takes no source. To overwrite the whole target instead, send source with operation 'replace'.",
+			};
+		}
+		return { operation: resolved, find, replaceWith };
+	}
+	if (source === undefined) {
+		return { error: `operation '${resolved}' needs source, the content to write.` };
+	}
+	if (find !== undefined || replaceWith !== undefined) {
+		return {
+			error: `find and replaceWith belong to operation 'find-replace', not '${resolved}'.`,
+		};
+	}
+	if (args.removeUnreadContent !== undefined && resolved !== 'replace') {
+		return {
+			error: `removeUnreadContent confirms a replace that discards content too large to have been read, so it applies only to operation 'replace', not '${resolved}'.`,
+		};
+	}
+	if (
+		args.removeSubsections !== undefined &&
+		(resolved !== 'replace' || args.section === undefined)
+	) {
+		return {
+			error:
+				"removeSubsections confirms a section replace that drops the subsections nested under it, so it applies only to operation 'replace' with section set.",
+		};
+	}
+	return { operation: resolved, source };
+}
+
+// Every write shares its title, summary, scope and flags; only the field
+// carrying the content and the revision it is based on differ by operation.
+function commonEditParams(
 	ctx: ToolContext,
-	{ title, source, latestId, comment, section, mode, bot }: UpdatePageArgs,
+	{ title, comment, section, bot }: UpdatePageArgs,
 ): Record<string, string | number | boolean> {
-	const sourceField =
-		mode === 'append' ? 'appendtext' : mode === 'prepend' ? 'prependtext' : 'text';
 	const summary = formatEditComment(ctx, 'update-page', comment);
 	return {
 		action: 'edit',
 		title,
 		...(summary !== undefined ? { summary } : {}),
 		nocreate: true,
-		[sourceField]: source,
-		...(latestId !== undefined ? { baserevid: latestId } : {}),
 		...(section !== undefined ? { section: String(section) } : {}),
 		...(bot === true ? { bot: true } : {}),
 	};
 }
 
-// Replacing a section replaces its heading and everything nested under it. Two
-// losses are possible, and both are refused:
-//
-// - a source that does not open with a heading at the section's level deletes
-//   the heading itself, because MediaWiki splices the source in place of the
-//   heading and its subtree;
-// - a source that carries a second heading at the section's level or higher
-//   places a sibling section inside the replacement, so the page ends up with
-//   two headings of the same name (the References duplicate in the incident
-//   this guard was written for).
-//
-// Both sides are parsed by the wiki itself, so what counts as a heading is
-// decided once — a heading-shaped line inside <nowiki> or a comment is not a
-// section on either side. Headings are counted rather than matched by text, so
-// a rename passes.
-//
-// Replacing a section also replaces the subsections nested under it. A source
-// that brings them back is not destructive; one that drops them deletes
-// content the caller may never have read.
-async function sectionReplaceError(
+function buildEditParams(
+	ctx: ToolContext,
 	args: UpdatePageArgs,
+	plan: { operation: 'replace' | 'append' | 'prepend'; source: string },
+): Record<string, string | number | boolean> {
+	const sourceField =
+		plan.operation === 'append'
+			? 'appendtext'
+			: plan.operation === 'prepend'
+				? 'prependtext'
+				: 'text';
+	return {
+		...commonEditParams(ctx, args),
+		[sourceField]: plan.source,
+		...(args.latestId !== undefined ? { baserevid: args.latestId } : {}),
+	};
+}
+
+async function findReplace(
+	args: UpdatePageArgs,
+	plan: { find: string; replaceWith: string },
 	ctx: ToolContext,
 	mwn: Mwn,
-): Promise<string | undefined> {
-	const { section, source, mode, removeSubsections, latestId } = args;
-	if (section === undefined || mode !== undefined) {
-		return undefined;
+): Promise<CallToolResult> {
+	const splice = await findReplaceSplice(args, plan, ctx.format, mwn);
+	if ('refusal' in splice) {
+		return splice.refusal;
 	}
-	// The lead has no heading and cannot contain a subsection.
-	if (section === 0) {
-		return undefined;
-	}
-	// Read the outline at the revision the write resolves the section number
-	// against, when the caller supplied one.
-	const entries = await ctx.sections.list(mwn, args.title, latestId);
-	const index = String(section);
-	const parent = entries.find((e) => e.index === index);
-	if (parent === undefined) {
-		return undefined;
-	}
-	// Sections a template in the source expands to carry `T-` ids and are
-	// excluded: only headings the caller wrote count.
-	const sourceSections = await ctx.sections.listInSource(mwn, args.title, source);
-	const written = sourceSections.filter((e) => e.editable);
-	const first = written[0];
-	// `byteoffset` counts UTF-8 bytes, while String#slice counts UTF-16 units;
-	// decode the byte prefix so a multibyte character before the heading is
-	// judged as the text it is, not as a truncated surrogate.
-	const prefix =
-		first?.byteOffset === undefined || first.byteOffset === 0
-			? ''
-			: Buffer.from(source, 'utf8').subarray(0, first.byteOffset).toString('utf8');
-	if (
-		first === undefined ||
-		first.level !== parent.level ||
-		(first.byteOffset !== undefined && prefix.trim() !== '')
-	) {
-		const heading = `${'='.repeat(parent.level)} ${parent.line} ${'='.repeat(parent.level)}`;
-		return `Section ${index} (${parent.line}) is replaced together with its heading, but the source supplied does not begin with a heading at level ${parent.level}. The heading would be deleted. Start the source with the heading (for example "${heading}"), or with a new heading at the same level to rename the section. To add content without replacing the section, use mode='append'.`;
-	}
-	const sibling = written.find((entry, position) => position > 0 && entry.level <= parent.level);
-	if (sibling !== undefined) {
-		return `The source supplied contains a heading at level ${sibling.level} ("${sibling.line}") after the section heading. A section replace writes only inside section ${index}, so that heading would duplicate a sibling section. Remove it from the source, or write the whole page.`;
-	}
-	if (removeSubsections === true) {
-		return undefined;
-	}
-	// childrenOf walks every entry so a transcluded heading still closes the
-	// subtree at the right point; transcluded children are filtered out here
-	// because they can never appear in source for the caller to carry back,
-	// and the guard must not refuse a write over content it cannot supply.
-	const children = childrenOf(entries, index).filter((c) => c.editable);
-	if (children.length === 0) {
-		return undefined;
-	}
-	const carriedBack = written.filter((e) => e.level > parent.level).length;
-	if (carriedBack >= children.length) {
-		return undefined;
-	}
-	const names = children.map((c) => c.line).join(', ');
-	return `Section ${index} (${parent.line}) contains ${children.length} subsection${children.length === 1 ? '' : 's'}: ${names}. The source supplied would remove them. Include them in source to keep them, or pass removeSubsections: true to remove them deliberately.`;
+	return submitPageEdit(
+		ctx,
+		mwn,
+		'update page',
+		{
+			...commonEditParams(ctx, args),
+			text: splice.text,
+			...(splice.baseRevisionId !== undefined ? { baserevid: splice.baseRevisionId } : {}),
+		},
+		args,
+	);
 }
 
 export const updatePage: Tool<typeof inputSchema> = {
 	name: 'update-page',
 	description:
-		"Replaces the existing content of a wiki page and returns the new revision ID. Fails if the page does not exist; for new pages, use create-page. Pass latestId (obtained from get-page with metadata=true) to enable edit-conflict detection: if the page has been edited since that revision, the update is rejected rather than silently clobbering concurrent changes. For large pages, two modifiers avoid shipping the full source: section=N replaces one section, including its heading and every subsection nested under it, so source must begin with the heading (get-page section=N returns it) and must not introduce a second heading at that section's level; the call is refused otherwise, and when source would drop the nested subsections; paired with get-page section=N it reads, changes and writes back a single section, which is also how to add content in the middle of a page; mode='append' or 'prepend' sends a delta, and adding a new section means appending a source that begins with a heading. Each call is a separate revision; for chains of mode='append' calls, re-fetching latestId between calls confirms the previous chunk landed before the next. Resending a mode='append' or 'prepend' call whose result never arrived adds the delta a second time.",
+		"Writes to an existing wiki page and returns the new revision ID. Fails if the page does not exist; for new pages, use create-page. operation says what the write does and section says where: omit section to act on the whole page, or set it to confine the write to one section. For changing part of a page, use operation='find-replace', which carries only the text being rewritten, so nothing outside find can be lost and the rest of the page never has to travel to or from the caller; a find that matches nothing, or more than one place, is refused without writing, which also makes it safe to resend a call whose result never arrived. For replacing a target outright, use operation='replace', whose source must carry every byte meant to survive; it is refused when source would shorten a target too large for one read to return whole, since the rest was never seen. With section set it also takes out every subsection nested under that section, is refused when source would drop them, is refused when source does not begin with the section's heading or introduces a sibling heading, and needs latestId to say which revision the section number was read from. operation='append' and 'prepend' add a delta: a new section at the end of the page is an append whose source begins with the heading, and with section set a prepend inserts one immediately above that section. Pass latestId (reported as latestRevisionId by any get-page read that returns wikitext) for edit-conflict detection: the write is rejected rather than silently clobbering a concurrent change. Each call is a separate revision, and resending an append or prepend whose result never arrived adds the delta a second time.",
 	inputSchema,
 	annotations: {
 		title: 'Update page',
@@ -185,35 +238,39 @@ export const updatePage: Tool<typeof inputSchema> = {
 		openWorldHint: true,
 	},
 	failureVerb: 'update page',
+	tailoredErrors: { nosuchsection: sectionNotFound },
 	target: (a) => a.title,
 
 	async handle(args, ctx: ToolContext): Promise<CallToolResult> {
+		const plan = writePlan(args);
+		if ('error' in plan) {
+			return ctx.format.invalidInput(plan.error);
+		}
 		const mwn = await ctx.mwn();
-		const removalError = await sectionReplaceError(args, ctx, mwn);
-		if (removalError) {
-			return ctx.format.invalidInput(removalError);
+
+		if (plan.operation === 'find-replace') {
+			return findReplace(args, plan, ctx, mwn);
 		}
-		const response =
-			// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- mwn API response shape; trusted at this boundary
-			(await ctx.edit.submit(mwn, buildEditParams(ctx, args))) as
-				| { edit?: ApiEditResponse }
-				| undefined;
-		const edit = response?.edit;
-		if (!edit || edit.result !== 'Success') {
-			return ctx.format.error(
-				'upstream_failure',
-				`Failed to update page: ${JSON.stringify(edit ?? response)}`,
-			);
+
+		// Only a replace takes the section's subtree with it; a delta adds to the
+		// section and removes nothing.
+		if (plan.operation === 'replace') {
+			// Before the source-parsing guards: a source that is a truncated prefix
+			// may appear to drop its heading or subsections that simply lie past
+			// the cut, so their verdict on it would misdirect.
+			const unreadError = await unreadContentError(args, plan.source, mwn);
+			if (unreadError) {
+				return ctx.format.invalidInput(unreadError);
+			}
+			const headingError = await sectionHeadingError(args, plan.source, ctx.sections, mwn);
+			if (headingError) {
+				return ctx.format.invalidInput(headingError);
+			}
+			const removalError = await subsectionRemovalError(args, plan.source, ctx.sections, mwn);
+			if (removalError) {
+				return ctx.format.invalidInput(removalError);
+			}
 		}
-		const resolvedTitle = edit.title ?? args.title;
-		return ctx.format.ok({
-			pageId: edit.pageid,
-			title: resolvedTitle,
-			latestRevisionId: edit.newrevid,
-			latestRevisionTimestamp: edit.newtimestamp,
-			contentModel: edit.contentmodel,
-			...(args.bot === true ? { botMarked: await ctx.edit.botRight(mwn) } : {}),
-			url: await buildPageUrl(ctx, resolvedTitle),
-		});
+		return submitPageEdit(ctx, mwn, 'update page', buildEditParams(ctx, args, plan), args);
 	},
 };

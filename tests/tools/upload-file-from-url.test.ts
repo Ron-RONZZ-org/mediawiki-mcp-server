@@ -1,12 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { FetchError } from 'node-fetch';
-import { createMockMwn } from '../helpers/mock-mwn.ts';
-import { createMockMwnError } from '../helpers/mock-mwn-error.ts';
-import { fakeContext } from '../helpers/fakeContext.ts';
 
-vi.mock('../../src/transport/httpFetch.ts', async () => {
-	const actual = await vi.importActual<typeof import('../../src/transport/httpFetch.ts')>(
-		'../../src/transport/httpFetch.ts',
+vi.mock('../../src/outbound/httpFetch.ts', async () => {
+	const actual = await vi.importActual<typeof import('../../src/outbound/httpFetch.ts')>(
+		'../../src/outbound/httpFetch.ts',
 	);
 	return { ...actual, fetchFileBytes: vi.fn() };
 });
@@ -15,31 +11,19 @@ import {
 	fetchFileBytes,
 	FileTooLargeError,
 	HttpStatusError,
-} from '../../src/transport/httpFetch.ts';
+} from '../../src/outbound/httpFetch.ts';
 import { uploadFileFromUrl } from '../../src/tools/upload-file-from-url.ts';
 import { dispatch } from '../../src/runtime/dispatcher.ts';
 import { assertStructuredError, assertStructuredSuccess } from '../helpers/structuredResult.ts';
+import { contextWritingTo, writingWiki } from '../helpers/writingWiki.ts';
+import { FILE_EXISTS, FILE_MISSING, UPLOADED } from '../helpers/uploadingWiki.ts';
+import { RequestFailedError } from '../../src/outbound/httpFetch.ts';
 
-const UPLOAD_OK = {
-	result: 'Success',
-	filename: 'Cat.jpg',
-	imageinfo: {
-		descriptionurl: 'https://test.wiki/wiki/File:Cat.jpg',
-		url: 'https://test.wiki/images/Cat.jpg',
-	},
-};
+const CAT = { url: 'https://source.example/cat.jpg', title: 'File:Cat.jpg', text: 'A cat.' };
 
-// fakeContext's edit slice throws on any method a test leaves unstubbed.
-const baseEdit = fakeContext().edit;
-
-function ctxWithServerUpload(
-	mock: ReturnType<typeof createMockMwn>,
-	submitUploadFromBytes = vi.fn().mockResolvedValue(UPLOAD_OK),
-) {
-	return fakeContext({
-		mwn: async () => mock as never,
-		edit: { ...baseEdit, submitUploadFromBytes },
-	});
+// A wiki without the file yet, answering an upload with `response`.
+function wikiWithoutFile(response: object = { upload: UPLOADED }): ReturnType<typeof writingWiki> {
+	return writingWiki(response, { read: FILE_MISSING });
 }
 
 describe('upload-file-from-url', () => {
@@ -48,88 +32,158 @@ describe('upload-file-from-url', () => {
 		vi.mocked(fetchFileBytes).mockResolvedValue(Buffer.from('IMG'));
 	});
 
-	it('server-first: fetches the bytes and uploads via multipart, not wiki copy-upload', async () => {
-		const mock = createMockMwn({ uploadFromUrl: vi.fn() });
-		const submit = vi.fn().mockResolvedValue(UPLOAD_OK);
-		const ctx = ctxWithServerUpload(mock, submit);
+	it('server-first: fetches the bytes and uploads them itself, not by wiki copy-upload', async () => {
+		const wiki = wikiWithoutFile();
 
-		const result = await uploadFileFromUrl.handle(
-			{ url: 'https://source.example/cat.jpg', title: 'File:Cat.jpg', text: 'A cat.' },
-			ctx,
-		);
+		const result = await uploadFileFromUrl.handle(CAT, contextWritingTo(wiki));
 
 		const text = assertStructuredSuccess(result);
 		expect(text).toContain('Filename: Cat.jpg');
 		expect(text).toContain('Page URL: https://test.wiki/wiki/File:Cat.jpg');
 		expect(text).toContain('File URL: https://test.wiki/images/Cat.jpg');
 		expect(fetchFileBytes).toHaveBeenCalledWith('https://source.example/cat.jpg');
-		expect(submit).toHaveBeenCalledWith(
-			mock,
-			expect.any(Buffer),
-			'Cat.jpg',
-			'File:Cat.jpg',
-			'A cat.',
-			expect.objectContaining({ comment: expect.stringContaining('upload-file-from-url') }),
+		const sent = wiki.sentWrite();
+		expect(sent.get('file')).toBe('IMG');
+		expect(sent.get('filename')).toBe('File:Cat.jpg');
+		expect(sent.get('text')).toBe('A cat.');
+		expect(sent.get('comment')).toContain('upload-file-from-url');
+		expect(sent.has('url')).toBe(false);
+	});
+
+	it('asks the wiki to fetch the file when the server cannot reach the URL', async () => {
+		vi.mocked(fetchFileBytes).mockRejectedValue(
+			new RequestFailedError('https://source.example/file', new Error('connect ECONNREFUSED')),
 		);
-		expect(mock.uploadFromUrl).not.toHaveBeenCalled();
+		const wiki = wikiWithoutFile();
+
+		const result = await uploadFileFromUrl.handle(CAT, contextWritingTo(wiki));
+
+		assertStructuredSuccess(result);
+		expect(wiki.writes).toHaveLength(1);
+		const sent = wiki.sentWrite();
+		expect(sent.get('action')).toBe('upload');
+		expect(sent.get('url')).toBe('https://source.example/cat.jpg');
+		expect(sent.get('filename')).toBe('File:Cat.jpg');
+		expect(sent.get('text')).toBe('A cat.');
+		expect(sent.get('comment')).toContain('upload-file-from-url');
+	});
+
+	it('asks the wiki to fetch the file when it exceeds the size cap', async () => {
+		vi.mocked(fetchFileBytes).mockRejectedValue(new FileTooLargeError(200_000_000, 104_857_600));
+		const wiki = wikiWithoutFile();
+
+		const result = await uploadFileFromUrl.handle(
+			{ url: 'https://source.example/big.tif', title: 'File:Big.tif', text: '' },
+			contextWritingTo(wiki),
+		);
+
+		assertStructuredSuccess(result);
+		expect(wiki.sentWrite().get('url')).toBe('https://source.example/big.tif');
+	});
+
+	it('does not hand the file to the wiki when the source returns an HTTP error', async () => {
+		vi.mocked(fetchFileBytes).mockRejectedValue(
+			new HttpStatusError(404, 'https://source.example/cat.jpg'),
+		);
+		const wiki = wikiWithoutFile();
+
+		const result = await dispatch(uploadFileFromUrl, contextWritingTo(wiki))(CAT);
+
+		assertStructuredError(result, 'upstream_failure');
+		expect(() => wiki.sentWrite()).toThrow('No write reached the wiki');
+	});
+
+	it('reports a refused upload of the fetched bytes as permission_denied, without a copy-upload', async () => {
+		const wiki = wikiWithoutFile({
+			error: { code: 'permissiondenied', info: 'You do not have permission' },
+		});
+
+		const result = await dispatch(uploadFileFromUrl, contextWritingTo(wiki))(CAT);
+
+		assertStructuredError(result, 'permission_denied');
+		expect(wiki.writes).toHaveLength(1);
+		expect(wiki.sentWrite().get('file')).toBe('IMG');
+	});
+
+	it('says both routes failed when the server cannot reach the URL and the wiki has copy-upload disabled', async () => {
+		vi.mocked(fetchFileBytes).mockRejectedValue(
+			new RequestFailedError('https://source.example/file', new Error('timeout')),
+		);
+		const wiki = wikiWithoutFile({
+			error: { code: 'copyuploaddisabled', info: 'Uploads by URL are not enabled.' },
+		});
+
+		const result = await uploadFileFromUrl.handle(CAT, contextWritingTo(wiki));
+
+		const envelope = assertStructuredError(result, 'upstream_failure', 'copyuploaddisabled');
+		expect(envelope.message).toMatch(/could not reach it and the wiki has upload-by-URL disabled/);
+	});
+
+	it('fails as conflict when the file already exists, without fetching or uploading it', async () => {
+		const wiki = writingWiki({ upload: UPLOADED }, { read: FILE_EXISTS });
+
+		const result = await uploadFileFromUrl.handle(CAT, contextWritingTo(wiki));
+
+		const envelope = assertStructuredError(result, 'conflict');
+		expect(envelope.message).toContain('update-file-from-url');
+		expect(fetchFileBytes).not.toHaveBeenCalled();
+		expect(() => wiki.sentWrite()).toThrow('No write reached the wiki');
+	});
+
+	it("tags a copy-upload with the wiki's configured tags", async () => {
+		vi.mocked(fetchFileBytes).mockRejectedValue(
+			new RequestFailedError('https://source.example/file', new Error('refused')),
+		);
+		const wiki = wikiWithoutFile();
+
+		await uploadFileFromUrl.handle(CAT, contextWritingTo(wiki, 'mcp-server'));
+
+		expect(wiki.sentWrite().get('tags')).toBe('mcp-server');
 	});
 
 	it('attaches semantic image facts after a URL upload', async () => {
-		const mock = createMockMwn({ uploadFromUrl: vi.fn() });
-		const submitUploadFromBytes = vi.fn().mockResolvedValue(UPLOAD_OK);
-		const submit = vi.fn().mockResolvedValue({ imagefacts: { itemId: 'Q777' } });
-		const ctx = fakeContext({
-			mwn: async () => mock as never,
-			edit: { ...baseEdit, submitUploadFromBytes, submit },
+		const wiki = writingWiki([{ upload: UPLOADED }, { imagefacts: { itemId: 'Q777' } }], {
+			read: FILE_MISSING,
 		});
 
 		const result = await uploadFileFromUrl.handle(
 			{
-				url: 'https://source.example/cat.jpg',
-				title: 'File:Cat.jpg',
-				text: 'A cat.',
+				...CAT,
 				license: 'Q124',
 				author: 'NASA',
 				sourceUrl: 'https://source.example/cat.jpg',
 			},
-			ctx,
+			contextWritingTo(wiki),
 		);
 
 		const text = assertStructuredSuccess(result);
 		expect(text).toContain('Image item ID: Q777');
-		expect(submit).toHaveBeenCalledWith(
-			mock,
-			expect.objectContaining({
-				action: 'imagefacts',
-				filename: 'File:Cat.jpg',
-				license: 'Q124',
-				author: 'NASA',
-				sourceUrl: 'https://source.example/cat.jpg',
-			}),
-		);
+		expect(wiki.writes).toHaveLength(2);
+		const facts = wiki.writes[1];
+		expect(facts.get('action')).toBe('imagefacts');
+		expect(facts.get('filename')).toBe('File:Cat.jpg');
+		expect(facts.get('license')).toBe('Q124');
+		expect(facts.get('author')).toBe('NASA');
+		expect(facts.get('sourceUrl')).toBe('https://source.example/cat.jpg');
 	});
 
 	it('warns (upload still succeeds) when the wiki has no imagefacts action', async () => {
-		const mock = createMockMwn({ uploadFromUrl: vi.fn() });
-		const submitUploadFromBytes = vi.fn().mockResolvedValue(UPLOAD_OK);
-		const submit = vi
-			.fn()
-			.mockRejectedValue(
-				createMockMwnError('badvalue', 'Unrecognized value for parameter "action": imagefacts.'),
-			);
-		const ctx = fakeContext({
-			mwn: async () => mock as never,
-			edit: { ...baseEdit, submitUploadFromBytes, submit },
-		});
+		const wiki = writingWiki(
+			[
+				{ upload: UPLOADED },
+				{
+					error: {
+						code: 'badvalue',
+						info: 'Unrecognized value for parameter "action": imagefacts.',
+					},
+				},
+			],
+			{ read: FILE_MISSING },
+		);
 
 		const result = await uploadFileFromUrl.handle(
-			{
-				url: 'https://source.example/cat.jpg',
-				title: 'File:Cat.jpg',
-				text: 'A cat.',
-				license: 'Q124',
-			},
-			ctx,
+			{ ...CAT, license: 'Q124' },
+			contextWritingTo(wiki),
 		);
 
 		const text = assertStructuredSuccess(result);
@@ -137,112 +191,22 @@ describe('upload-file-from-url', () => {
 		expect(text).toContain('no image-facts API');
 	});
 
-	it('rescues to wiki copy-upload when the server cannot reach the URL', async () => {
-		vi.mocked(fetchFileBytes).mockRejectedValue(new FetchError('connect ECONNREFUSED', 'system'));
-		const mock = createMockMwn({ uploadFromUrl: vi.fn().mockResolvedValue(UPLOAD_OK) });
-		const submit = vi.fn();
-		const ctx = ctxWithServerUpload(mock, submit);
-
-		const result = await uploadFileFromUrl.handle(
-			{ url: 'https://source.example/cat.jpg', title: 'File:Cat.jpg', text: 'A cat.' },
-			ctx,
+	it('reports the successful upload when attaching facts fails', async () => {
+		const wiki = writingWiki(
+			[
+				{ upload: UPLOADED },
+				{ error: { code: 'permissiondenied', info: 'You do not have permission.' } },
+			],
+			{ read: FILE_MISSING },
 		);
-
-		assertStructuredSuccess(result);
-		expect(mock.uploadFromUrl).toHaveBeenCalledWith(
-			'https://source.example/cat.jpg',
-			'File:Cat.jpg',
-			'A cat.',
-			expect.objectContaining({ comment: expect.stringContaining('upload-file-from-url') }),
-		);
-		expect(submit).not.toHaveBeenCalled();
-	});
-
-	it('rescues to wiki copy-upload when the file exceeds the size cap', async () => {
-		vi.mocked(fetchFileBytes).mockRejectedValue(new FileTooLargeError(200_000_000, 104_857_600));
-		const mock = createMockMwn({ uploadFromUrl: vi.fn().mockResolvedValue(UPLOAD_OK) });
-		const ctx = ctxWithServerUpload(mock, vi.fn());
-
-		const result = await uploadFileFromUrl.handle(
-			{ url: 'https://source.example/big.tif', title: 'File:Big.tif', text: '' },
-			ctx,
-		);
-
-		assertStructuredSuccess(result);
-		expect(mock.uploadFromUrl).toHaveBeenCalled();
-	});
-
-	it('does NOT rescue when the source returns an HTTP error; surfaces upstream_failure', async () => {
-		vi.mocked(fetchFileBytes).mockRejectedValue(
-			new HttpStatusError(404, 'https://source.example/cat.jpg'),
-		);
-		const mock = createMockMwn({ uploadFromUrl: vi.fn() });
-		const ctx = ctxWithServerUpload(mock, vi.fn());
 
 		const result = await dispatch(
 			uploadFileFromUrl,
-			ctx,
-		)({ url: 'https://source.example/cat.jpg', title: 'File:Cat.jpg', text: '' });
+			contextWritingTo(wiki),
+		)({ ...CAT, license: 'Q124' });
 
-		assertStructuredError(result, 'upstream_failure');
-		expect(mock.uploadFromUrl).not.toHaveBeenCalled();
-	});
-
-	it('surfaces a permissiondenied from the server-side upload as permission_denied (no rescue)', async () => {
-		const mock = createMockMwn({ uploadFromUrl: vi.fn() });
-		const submit = vi
-			.fn()
-			.mockRejectedValue(createMockMwnError('permissiondenied', 'You do not have permission'));
-		const ctx = ctxWithServerUpload(mock, submit);
-
-		const result = await dispatch(
-			uploadFileFromUrl,
-			ctx,
-		)({ url: 'https://source.example/cat.jpg', title: 'File:Cat.jpg', text: '' });
-
-		assertStructuredError(result, 'permission_denied');
-		expect(mock.uploadFromUrl).not.toHaveBeenCalled();
-	});
-
-	it('when server cannot reach AND wiki copy-uploads disabled, returns a combined upstream_failure', async () => {
-		vi.mocked(fetchFileBytes).mockRejectedValue(new FetchError('timeout', 'system'));
-		const mock = createMockMwn({
-			uploadFromUrl: vi
-				.fn()
-				.mockRejectedValue(
-					createMockMwnError('copyuploaddisabled', 'copyuploaddisabled: disabled'),
-				),
-		});
-		const ctx = ctxWithServerUpload(mock, vi.fn());
-
-		const result = await uploadFileFromUrl.handle(
-			{ url: 'https://source.example/cat.jpg', title: 'File:Cat.jpg', text: '' },
-			ctx,
-		);
-
-		const envelope = assertStructuredError(result, 'upstream_failure', 'copyuploaddisabled');
-		expect(envelope.message).toMatch(/could not reach it and the wiki has upload-by-URL disabled/);
-	});
-
-	it('forwards configured tags on the wiki-rescue path via applyTags', async () => {
-		vi.mocked(fetchFileBytes).mockRejectedValue(new FetchError('refused', 'system'));
-		const mock = createMockMwn({
-			uploadFromUrl: vi.fn().mockResolvedValue({ result: 'Success', filename: 'Cat.jpg' }),
-		});
-		const ctx = fakeContext({
-			mwn: async () => mock as never,
-			edit: {
-				...baseEdit,
-				submitUploadFromBytes: vi.fn(),
-				applyTags: <T extends Record<string, unknown>>(o: T) => ({ ...o, tags: 'mcp-server' }),
-			},
-		});
-
-		await uploadFileFromUrl.handle(
-			{ url: 'https://source.example/cat.jpg', title: 'File:Cat.jpg', text: 'A cat.' },
-			ctx,
-		);
-
-		expect(mock.uploadFromUrl.mock.calls[0][3]).toHaveProperty('tags', 'mcp-server');
+		const envelope = assertStructuredError(result, 'permission_denied');
+		expect(envelope.message).toContain('uploaded as File:Cat.jpg');
+		expect(envelope.message).toContain('attaching image facts failed');
 	});
 });

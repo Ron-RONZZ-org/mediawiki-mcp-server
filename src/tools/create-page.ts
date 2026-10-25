@@ -1,9 +1,9 @@
 import { z } from 'zod';
 import type { CallToolResult } from '@modelcontextprotocol/server';
-import type { ApiEditPageParams } from 'types-mediawiki-api';
 import type { Tool } from '../runtime/tool.ts';
 import type { ToolContext } from '../runtime/context.ts';
-import { buildPageUrl, formatEditComment } from '../wikis/utils.ts';
+import { formatEditComment } from '../wikis/utils.ts';
+import { submitPageEdit } from '../services/pageEdit.ts';
 
 const inputSchema = {
 	source: z.string().describe('Page content in the format specified by the contentModel parameter'),
@@ -26,7 +26,7 @@ const inputSchema = {
 export const createPage: Tool<typeof inputSchema> = {
 	name: 'create-page',
 	description:
-		"Creates a new wiki page with the provided content and returns the new page's title, page ID, and first revision ID. Fails if a page with the given title already exists; for existing pages, use update-page. The optional contentModel parameter selects a non-default content format (e.g. javascript, css); when omitted, MediaWiki picks the default for the title's namespace. For building up a large page across multiple calls, pair create-page with chained update-page(mode='append') calls, each adding a chunk.",
+		"Creates a new wiki page with the provided content and returns the new page's title, page ID, and first revision ID. Fails if a page with the given title already exists; for existing pages, use update-page. The optional contentModel parameter selects a non-default content format (e.g. javascript, css); when omitted, MediaWiki picks the default for the title's namespace. For building up a large page across multiple calls, pair create-page with chained update-page(operation='append') calls, each adding a chunk.",
 	inputSchema,
 	annotations: {
 		title: 'Create page',
@@ -43,29 +43,16 @@ export const createPage: Tool<typeof inputSchema> = {
 		ctx: ToolContext,
 	): Promise<CallToolResult> {
 		const mwn = await ctx.mwn();
-		const baseOptions: ApiEditPageParams = {};
-		if (contentModel !== undefined) {
-			baseOptions.contentmodel = contentModel;
-		}
-		if (bot === true) {
-			baseOptions.bot = true;
-		}
-		const options = ctx.edit.applyTags<ApiEditPageParams>(baseOptions);
-		const result = await mwn.create(
+		// Not mwn.create(), which marks every edit as a bot edit unless told otherwise.
+		const params = {
+			action: 'edit',
 			title,
-			source,
-			formatEditComment(ctx, 'create-page', comment),
-			options,
-		);
-
-		return ctx.format.ok({
-			pageId: result.pageid,
-			title: result.title,
-			latestRevisionId: result.newrevid,
-			latestRevisionTimestamp: result.newtimestamp,
-			contentModel: result.contentmodel,
-			...(bot === true ? { botMarked: await ctx.edit.botRight(mwn) } : {}),
-			url: await buildPageUrl(ctx, result.title),
-		});
+			text: source,
+			summary: formatEditComment(ctx, 'create-page', comment),
+			createonly: true,
+			...(contentModel !== undefined ? { contentmodel: contentModel } : {}),
+			...(bot === true ? { bot: true } : {}),
+		};
+		return submitPageEdit(ctx, mwn, 'create page', params, { title, bot });
 	},
 };

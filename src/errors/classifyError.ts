@@ -1,4 +1,5 @@
 import { CredentialResolutionError } from './credentialResolutionError.ts';
+import { WikiTimeoutError } from './wikiTimeoutError.ts';
 
 export type ErrorCategory =
 	| 'not_found'
@@ -9,8 +10,20 @@ export type ErrorCategory =
 	| 'rate_limited'
 	| 'authentication';
 
-export interface ErrorClassifier {
-	classify(err: unknown): { category: ErrorCategory; code?: string };
+/**
+ * A failure its pack already classified, from a transport of the pack's own
+ * rather than mwn. Thrown like any other failure, so the caller and the logs
+ * see it the way they see every tool's.
+ */
+export class ClassifiedError extends Error {
+	public constructor(
+		public readonly category: ErrorCategory,
+		message: string,
+		public readonly upstreamStatus?: number,
+	) {
+		super(message);
+		this.name = 'ClassifiedError';
+	}
 }
 
 const MW_CODE_TO_CATEGORY: Record<string, ErrorCategory> = {
@@ -19,6 +32,8 @@ const MW_CODE_TO_CATEGORY: Record<string, ErrorCategory> = {
 	nosuchrevid: 'not_found',
 	nosuchsection: 'not_found',
 	nofile: 'not_found',
+	// A protection other than create on a title that does not exist.
+	'missingtitle-createonly': 'not_found',
 	// permission_denied
 	permissiondenied: 'permission_denied',
 	protectedpage: 'permission_denied',
@@ -50,6 +65,12 @@ const MW_CODE_TO_CATEGORY: Record<string, ErrorCategory> = {
 	immobilenamespace: 'invalid_input',
 	nonfilenamespace: 'invalid_input',
 	filetypemismatch: 'invalid_input',
+	toomanyvalues: 'invalid_input',
+	'protect-invalidaction': 'invalid_input',
+	'protect-invalidlevel': 'invalid_input',
+	invalidexpiry: 'invalid_input',
+	pastexpiry: 'invalid_input',
+	'create-titleexists': 'invalid_input',
 	// conflict
 	editconflict: 'conflict',
 	articleexists: 'conflict',
@@ -70,6 +91,9 @@ const MW_CODE_TO_CATEGORY: Record<string, ErrorCategory> = {
 	ratelimited: 'rate_limited',
 	// upstream_failure (explicit; unknown codes also fall through here)
 	readonly: 'upstream_failure',
+	// The one code this server issues rather than the wiki; listed so the
+	// pack-collision check covers it too.
+	'request-timeout': 'upstream_failure',
 };
 
 // Code families the wiki numbers per case, matched by prefix rather than by
@@ -100,19 +124,36 @@ export interface ExtensionErrorVocabulary {
 
 const NO_EXTENSION_CODES: ExtensionErrorVocabulary = { codes: {}, prefixes: [] };
 
+// Own keys only: a code that names an Object.prototype member, such as
+// `constructor`, would otherwise read as a category.
+function categoryOf(
+	vocabulary: Readonly<Record<string, ErrorCategory>>,
+	code: string,
+): ErrorCategory | undefined {
+	return Object.hasOwn(vocabulary, code) ? vocabulary[code] : undefined;
+}
+
 export function classifyError(
 	err: unknown,
 	extensions: ExtensionErrorVocabulary = NO_EXTENSION_CODES,
 ): { category: ErrorCategory; code?: string } {
+	if (err instanceof ClassifiedError) {
+		return { category: err.category };
+	}
 	if (err instanceof CredentialResolutionError) {
 		return { category: 'authentication' };
+	}
+	// Carries no `code` of its own, so it would otherwise reach the caller as a
+	// bare upstream_failure.
+	if (err instanceof WikiTimeoutError) {
+		return { category: 'upstream_failure', code: 'request-timeout' };
 	}
 	if (err !== null && typeof err === 'object') {
 		const code = (err as { code?: unknown }).code;
 		if (typeof code === 'string') {
 			// Core first: a pack cannot reinterpret a code the wiki already defines,
 			// and registration rejects an overlap before it could try.
-			const mapped = MW_CODE_TO_CATEGORY[code] ?? extensions.codes[code];
+			const mapped = categoryOf(MW_CODE_TO_CATEGORY, code) ?? categoryOf(extensions.codes, code);
 			if (mapped) {
 				return { category: mapped, code };
 			}
@@ -137,8 +178,8 @@ export function classifyError(
 	return { category: 'upstream_failure' };
 }
 
-export class ErrorClassifierImpl implements ErrorClassifier {
-	public constructor(private readonly extensions: ExtensionErrorVocabulary = NO_EXTENSION_CODES) {}
+export class ErrorClassifier {
+	public constructor(private readonly extensions: ExtensionErrorVocabulary) {}
 
 	public classify(err: unknown): { category: ErrorCategory; code?: string } {
 		return classifyError(err, this.extensions);

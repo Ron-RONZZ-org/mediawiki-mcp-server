@@ -1,6 +1,7 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { createMockMwn } from '../helpers/mock-mwn.ts';
-import { fakeContext } from '../helpers/fakeContext.ts';
+import { fakeContext, contextOn } from '../helpers/fakeContext.ts';
+import { wikiAnswering } from '../helpers/wikiAnswering.ts';
 import { getPages, BatchContentFormat } from '../../src/tools/get-pages.ts';
 import { dispatch } from '../../src/runtime/dispatcher.ts';
 import { SectionServiceImpl } from '../../src/services/sectionService.ts';
@@ -43,21 +44,6 @@ function massQueryResponse(options: {
 			},
 		},
 	];
-}
-
-function readPage(title: string, pageid: number, revid: number, content?: string) {
-	return {
-		pageid,
-		title,
-		revisions: [
-			{
-				revid,
-				timestamp: '2026-04-01T00:00:00Z',
-				contentmodel: 'wikitext',
-				...(content !== undefined ? { content } : {}),
-			},
-		],
-	};
 }
 
 describe('get-pages', () => {
@@ -124,7 +110,7 @@ describe('get-pages', () => {
 				}),
 			);
 			const mock = createMockMwn({ massQuery });
-			const ctx = fakeContext({ mwn: async () => mock as never });
+			const ctx = contextOn(mock);
 
 			const result = await getPages.handle(
 				{
@@ -175,7 +161,7 @@ describe('get-pages', () => {
 				}),
 			);
 			const mock = createMockMwn({ massQuery });
-			const ctx = fakeContext({ mwn: async () => mock as never });
+			const ctx = contextOn(mock);
 
 			const result = await getPages.handle(
 				{
@@ -207,7 +193,7 @@ describe('get-pages', () => {
 				}),
 			);
 			const mock = createMockMwn({ massQuery });
-			const ctx = fakeContext({ mwn: async () => mock as never });
+			const ctx = contextOn(mock);
 
 			const result = await getPages.handle(
 				{
@@ -231,7 +217,7 @@ describe('get-pages', () => {
 				}),
 			);
 			const mock = createMockMwn({ massQuery });
-			const ctx = fakeContext({ mwn: async () => mock as never });
+			const ctx = contextOn(mock);
 
 			const result = await getPages.handle(
 				{
@@ -263,7 +249,7 @@ describe('get-pages', () => {
 				}),
 			);
 			const mock = createMockMwn({ massQuery });
-			const ctx = fakeContext({ mwn: async () => mock as never });
+			const ctx = contextOn(mock);
 
 			const result = await getPages.handle(
 				{
@@ -291,7 +277,7 @@ describe('get-pages', () => {
 				}),
 			);
 			const mock = createMockMwn({ massQuery });
-			const ctx = fakeContext({ mwn: async () => mock as never });
+			const ctx = contextOn(mock);
 
 			const result = await getPages.handle(
 				{
@@ -310,14 +296,14 @@ describe('get-pages', () => {
 			expect(data.pages[0]).not.toHaveProperty('requestedTitle');
 		});
 
-		it('mwn.massQuery throws → isError with wrapped message via dispatcher', async () => {
-			const massQuery = vi.fn().mockRejectedValue(new Error('API error'));
-			const mock = createMockMwn({ massQuery });
-			const ctx = fakeContext({ mwn: async () => mock as never });
+		it("fails with the wiki's refusal instead of reporting the pages missing", async () => {
+			const wiki = wikiAnswering({
+				error: { code: 'readapidenied', info: 'You need read permission to use this module.' },
+			});
 
 			const result = await dispatch(
 				getPages,
-				ctx,
+				contextOn(wiki.mwn),
 			)({
 				titles: ['Foo'],
 				content: BatchContentFormat.source,
@@ -325,9 +311,7 @@ describe('get-pages', () => {
 				followRedirects: true,
 			});
 
-			const envelope = assertStructuredError(result, 'upstream_failure');
-			expect(envelope.message).toContain('Failed to retrieve pages');
-			expect(envelope.message).toContain('API error');
+			assertStructuredError(result, 'permission_denied', 'readapidenied');
 		});
 
 		it('redirect followed: entry has redirectedFrom and target title', async () => {
@@ -338,7 +322,7 @@ describe('get-pages', () => {
 				}),
 			);
 			const mock = createMockMwn({ massQuery });
-			const ctx = fakeContext({ mwn: async () => mock as never });
+			const ctx = contextOn(mock);
 
 			const result = await getPages.handle(
 				{
@@ -369,7 +353,7 @@ describe('get-pages', () => {
 				}),
 			);
 			const mock = createMockMwn({ massQuery });
-			const ctx = fakeContext({ mwn: async () => mock as never });
+			const ctx = contextOn(mock);
 
 			const result = await getPages.handle(
 				{
@@ -400,7 +384,7 @@ describe('get-pages', () => {
 				}),
 			);
 			const mock = createMockMwn({ massQuery });
-			const ctx = fakeContext({ mwn: async () => mock as never });
+			const ctx = contextOn(mock);
 
 			const result = await getPages.handle(
 				{
@@ -430,7 +414,7 @@ describe('get-pages', () => {
 				}),
 			);
 			const mock = createMockMwn({ massQuery });
-			const ctx = fakeContext({ mwn: async () => mock as never });
+			const ctx = contextOn(mock);
 
 			const result = await getPages.handle(
 				{
@@ -458,7 +442,7 @@ describe('get-pages', () => {
 				}),
 			);
 			const mock = createMockMwn({ massQuery });
-			const ctx = fakeContext({ mwn: async () => mock as never });
+			const ctx = contextOn(mock);
 
 			const result = await getPages.handle(
 				{
@@ -478,76 +462,74 @@ describe('get-pages', () => {
 		});
 	});
 
-	describe('followRedirects=false (via mwn.read)', () => {
-		it('passes redirects: false to mwn.read and emits pseudo-page wikitext under requested title', async () => {
-			const read = vi
-				.fn()
-				.mockResolvedValue([readPage('Main Page', 7, 700, '#REDIRECT [[Target]]')]);
-			const mock = createMockMwn({ read });
-			const ctx = fakeContext({ mwn: async () => mock as never });
+	describe('followRedirects=false', () => {
+		it('returns a redirect page as itself, without asking the wiki to follow it', async () => {
+			const wiki = wikiAnswering({
+				query: { pages: [massQueryPage('Old Name', 7, 700, '#REDIRECT [[New Name]]')] },
+			});
 
 			const result = await getPages.handle(
 				{
-					titles: ['Main Page'],
+					titles: ['Old Name'],
 					content: BatchContentFormat.source,
-					metadata: true,
+					metadata: false,
 					followRedirects: false,
 				},
-				ctx,
+				contextOn(wiki.mwn),
 			);
 
-			expect(read).toHaveBeenCalledTimes(1);
-			expect(read).toHaveBeenCalledWith(
-				['Main Page'],
-				expect.objectContaining({ redirects: false }),
-			);
-
-			const text = assertStructuredSuccess(result);
-			// No requestedTitle when it equals the resolved title.
-			expect(text).not.toContain('Requested title:');
-			expect(text).toContain('Title: Main Page');
-			expect(text).toContain('Source: #REDIRECT [[Target]]');
-			expect(text).not.toContain('Redirected from:');
+			expect(wiki.sentQuery().has('redirects')).toBe(false);
 			const data = assertStructuredData(result);
-			expect(data.pages[0]).not.toHaveProperty('requestedTitle');
+			expect(data.pages[0]).toMatchObject({
+				title: 'Old Name',
+				source: '#REDIRECT [[New Name]]',
+			});
+			expect(data.pages[0]).not.toHaveProperty('redirectedFrom');
 		});
 
-		it('mwn.read throws → isError with wrapped message via dispatcher', async () => {
-			const read = vi.fn().mockRejectedValue(new Error('read error'));
-			const mock = createMockMwn({ read });
-			const ctx = fakeContext({ mwn: async () => mock as never });
-
-			const result = await dispatch(
-				getPages,
-				ctx,
-			)({
-				titles: ['Foo'],
-				content: BatchContentFormat.source,
-				metadata: false,
-				followRedirects: false,
+		it('returns a page asked for by a non-canonical title', async () => {
+			const wiki = wikiAnswering({
+				query: {
+					normalized: [{ from: 'main_Page', to: 'Main Page' }],
+					pages: [massQueryPage('Main Page', 7, 700, 'Welcome')],
+				},
 			});
 
-			const envelope = assertStructuredError(result, 'upstream_failure');
-			expect(envelope.message).toContain('Failed to retrieve pages');
-			expect(envelope.message).toContain('read error');
+			const result = await getPages.handle(
+				{
+					titles: ['main_Page'],
+					content: BatchContentFormat.source,
+					metadata: false,
+					followRedirects: false,
+				},
+				contextOn(wiki.mwn),
+			);
+
+			const data = assertStructuredData(result);
+			expect(data.pages[0]).toMatchObject({
+				title: 'Main Page',
+				requestedTitle: 'main_Page',
+				source: 'Welcome',
+			});
+			expect(data).not.toHaveProperty('missing');
 		});
 	});
 
 	describe('byte truncation', () => {
-		it('truncates oversized content per page with a truncation field on the entry', async () => {
-			const big = 'x'.repeat(50001);
+		it('cuts a body that fills the budget and marks it on the entry', async () => {
+			vi.stubEnv('MCP_CONTENT_MAX_BYTES', '1000');
+			const big = 'x'.repeat(1001);
 			const small = 'tiny body';
 			const massQuery = vi.fn().mockResolvedValue(
 				massQueryResponse({
 					pages: [massQueryPage('Big', 1, 10, big), massQueryPage('Small', 2, 20, small)],
 				}),
 			);
-			const request = vi
-				.fn()
-				.mockResolvedValueOnce({ parse: { sections: [{ line: 'Overview' }] } });
+			const request = vi.fn().mockResolvedValueOnce({
+				parse: { sections: [{ line: 'Overview', index: '1', level: '2' }] },
+			});
 			const mock = createMockMwn({ massQuery, request });
-			const ctx = fakeContext({
-				mwn: async () => mock as never,
+			const ctx = contextOn(mock, {
 				sections: new SectionServiceImpl(),
 			});
 
@@ -566,17 +548,17 @@ describe('get-pages', () => {
 			// The blank line after the source is what separates it from the next field:
 			// without it the wikitext runs straight into `Truncation:`, and a page whose
 			// own text contains such a line would read as a field of this payload.
-			expect(text).toMatch(/Page ID: 1[\s\S]*?Source:\n\nx{50000}\n\n {2}Truncation:/);
+			expect(text).toMatch(/Page ID: 1[\s\S]*?Source:\n\nx{1000}\n\n {2}Truncation:/);
 			expect(text).toContain('    Reason: content-truncated');
-			expect(text).toContain('    Returned bytes: 50000');
-			expect(text).toContain('    Total bytes: 50001');
+			expect(text).toContain('    Returned bytes: 1000');
+			expect(text).toContain('    Total bytes: 1001');
 			expect(text).toContain('    Item noun: wikitext');
 			expect(text).toContain('    Tool name: get-pages');
-			expect(text).toContain('    Sections:\n    - (empty)\n    - Overview');
-			expect(text).toContain(`  Source: ${small}`);
-			// Small entry has no truncation: block under it. We can verify only one Truncation block exists.
-			const truncationCount = (text.match(/Truncation:/g) ?? []).length;
-			expect(truncationCount).toBe(1);
+			expect(text).toContain('    Sections:\n    - 0 (Lead)\n    - 1 (Overview)');
+			// The first body reached the response budget, so the page after it is
+			// named rather than returned.
+			expect(text).not.toContain(`  Source: ${small}`);
+			expect(text).toContain('    Value: Small');
 
 			expect(request).toHaveBeenCalledTimes(1);
 			expect(request).toHaveBeenCalledWith(
@@ -587,29 +569,23 @@ describe('get-pages', () => {
 			);
 		});
 
-		it('fetches section outlines for multiple truncated pages in parallel, not serially', async () => {
-			const big1 = 'a'.repeat(60000);
-			const big2 = 'b'.repeat(70000);
+		// A body at the budget ends the response, so only the first page can carry a
+		// content-truncated marker and the outline behind it is fetched once.
+		it('cuts only the first page and names the rest', async () => {
+			vi.stubEnv('MCP_CONTENT_MAX_BYTES', '1000');
 			const massQuery = vi.fn().mockResolvedValue(
 				massQueryResponse({
-					pages: [massQueryPage('BigA', 1, 10, big1), massQueryPage('BigB', 2, 20, big2)],
+					pages: [
+						massQueryPage('BigA', 1, 10, 'a'.repeat(1200)),
+						massQueryPage('BigB', 2, 20, 'b'.repeat(1200)),
+					],
 				}),
 			);
-			let inFlight = 0;
-			let maxInFlight = 0;
-			const request = vi.fn().mockImplementation(() => {
-				inFlight += 1;
-				maxInFlight = Math.max(maxInFlight, inFlight);
-				return new Promise((resolve) => {
-					setTimeout(() => {
-						inFlight -= 1;
-						resolve({ parse: { sections: [{ line: 'H' }] } });
-					}, 10);
-				});
-			});
+			const request = vi
+				.fn()
+				.mockResolvedValue({ parse: { sections: [{ line: 'H', index: '1' }] } });
 			const mock = createMockMwn({ massQuery, request });
-			const ctx = fakeContext({
-				mwn: async () => mock as never,
+			const ctx = contextOn(mock, {
 				sections: new SectionServiceImpl(),
 			});
 
@@ -624,15 +600,16 @@ describe('get-pages', () => {
 			);
 
 			const text = assertStructuredSuccess(result);
-			expect(request).toHaveBeenCalledTimes(2);
-			expect(maxInFlight).toBe(2);
-			// Both pages should have a truncation block.
-			const truncationCount = (text.match(/Truncation:/g) ?? []).length;
-			expect(truncationCount).toBe(2);
+			expect((text.match(/Truncation:/g) ?? []).length).toBe(2);
+			expect(text).toContain('  Reason: content-truncated');
+			expect(text).toContain('  Reason: more-available');
+			expect(text).not.toContain('Title: BigB');
+			expect(request).toHaveBeenCalledTimes(1);
 		});
 
-		it('does not emit a truncation for content at exactly 50000 bytes', async () => {
-			const exact = 'y'.repeat(50000);
+		it('does not emit a truncation for content at exactly the byte cap', async () => {
+			vi.stubEnv('MCP_CONTENT_MAX_BYTES', '1000');
+			const exact = 'y'.repeat(1000);
 			const massQuery = vi.fn().mockResolvedValue(
 				massQueryResponse({
 					pages: [massQueryPage('Exact', 1, 10, exact)],
@@ -640,7 +617,7 @@ describe('get-pages', () => {
 			);
 			const request = vi.fn();
 			const mock = createMockMwn({ massQuery, request });
-			const ctx = fakeContext({ mwn: async () => mock as never });
+			const ctx = contextOn(mock);
 
 			const result = await getPages.handle(
 				{
@@ -656,5 +633,173 @@ describe('get-pages', () => {
 			expect(text).not.toContain('Truncation:');
 			expect(request).not.toHaveBeenCalled();
 		});
+	});
+});
+
+// The byte budget was applied to each body independently, so a call for the
+// maximum 50 titles could return 50 times it.
+describe('get-pages response budget', () => {
+	afterEach(() => {
+		vi.unstubAllEnvs();
+	});
+
+	// A small budget makes the boundaries legible and pins that it is read per
+	// call rather than at module load.
+	function pagesOfSize(sizes: (number | undefined)[], budget = '1000') {
+		vi.stubEnv('MCP_CONTENT_MAX_BYTES', budget);
+		const massQuery = vi.fn().mockResolvedValue(
+			massQueryResponse({
+				pages: sizes.map((size, i) =>
+					massQueryPage(
+						`P${i + 1}`,
+						i + 1,
+						100 + i,
+						size === undefined ? undefined : 'x'.repeat(size),
+					),
+				),
+			}),
+		);
+		const request = vi.fn().mockResolvedValue({ parse: { sections: [] } });
+		const mock = createMockMwn({ massQuery, request });
+		return contextOn(mock, { sections: new SectionServiceImpl() });
+	}
+
+	async function read(ctx: ReturnType<typeof fakeContext>, titles: string[]) {
+		return getPages.handle(
+			{ titles, content: BatchContentFormat.source, metadata: false, followRedirects: true },
+			ctx,
+		);
+	}
+
+	it('returns every page when their bodies fit the budget together', async () => {
+		const ctx = pagesOfSize([300, 300, 300]);
+
+		const text = assertStructuredSuccess(await read(ctx, ['P1', 'P2', 'P3']));
+
+		expect(text).toContain('Title: P3');
+		expect(text).not.toContain('Truncation:');
+	});
+
+	it('keeps a page that exactly fills the remaining budget', async () => {
+		const ctx = pagesOfSize([600, 400]);
+
+		const text = assertStructuredSuccess(await read(ctx, ['P1', 'P2']));
+
+		expect(text).toContain('Title: P2');
+		expect(text).not.toContain('Truncation:');
+	});
+
+	it('omits whole pages once the budget is spent, and names them as a continuation', async () => {
+		const ctx = pagesOfSize([400, 400, 400]);
+
+		const text = assertStructuredSuccess(await read(ctx, ['P1', 'P2', 'P3']));
+
+		expect(text).toContain('Title: P1');
+		expect(text).toContain('Title: P2');
+		expect(text).not.toContain('Title: P3');
+		expect(text).toContain('  Reason: more-available');
+		expect(text).toContain('  Returned count: 2');
+		expect(text).toContain('  Item noun: pages');
+		expect(text).toContain('    Param: titles');
+		expect(text).toContain('    Value: P3');
+	});
+
+	// A page the wiki does not have and a page left out for the budget are
+	// different facts, and each has its own channel.
+	it('reports a missing page and an omitted page through their own channels', async () => {
+		vi.stubEnv('MCP_CONTENT_MAX_BYTES', '1000');
+		const massQuery = vi.fn().mockResolvedValue(
+			massQueryResponse({
+				pages: [
+					massQueryPage('P1', 1, 100, 'x'.repeat(900)),
+					{ title: 'Gone', missing: true },
+					massQueryPage('P3', 3, 300, 'x'.repeat(900)),
+				],
+			}),
+		);
+		const request = vi.fn().mockResolvedValue({ parse: { sections: [] } });
+		const mock = createMockMwn({ massQuery, request });
+		const ctx = contextOn(mock, { sections: new SectionServiceImpl() });
+
+		const text = assertStructuredSuccess(await read(ctx, ['P1', 'Gone', 'P3']));
+
+		expect(text).toContain('Missing:\n- Gone');
+		expect(text).toContain('    Value: P3');
+		expect(text).not.toContain('Title: P3');
+	});
+
+	// One page larger than the whole budget still comes back, cut, rather than
+	// being dropped for not fitting.
+	it('keeps a first page that fills the budget by itself', async () => {
+		const ctx = pagesOfSize([1500, 10]);
+
+		const text = assertStructuredSuccess(await read(ctx, ['P1', 'P2']));
+
+		expect(text).toContain('Title: P1');
+		expect(text).toContain('  Reason: content-truncated');
+		expect(text).not.toContain('Title: P2');
+	});
+
+	it('names a later page larger than the budget rather than cutting it', async () => {
+		const ctx = pagesOfSize([300, 1500]);
+
+		const text = assertStructuredSuccess(await read(ctx, ['P1', 'P2']));
+
+		expect(text).not.toContain('Title: P2');
+		expect(text).toContain('    Value: P2');
+	});
+
+	// An earlier entry can carry no body at all — a revision whose text the wiki
+	// withholds — and dropping the first real one would answer a request for
+	// source with no source anywhere in the response.
+	it('cuts the first page that has a body, not the first page', async () => {
+		const ctx = pagesOfSize([undefined, 1500]);
+
+		const text = assertStructuredSuccess(await read(ctx, ['P1', 'P2']));
+
+		expect(text).toContain('Title: P2');
+		expect(text).toContain('  Reason: content-truncated');
+		expect(text).toMatch(/Source:\n\nx{1000}/);
+	});
+
+	// A page asked for by a redirect or an unnormalised title must come back
+	// under the name the caller used, or it cannot account for what it asked for.
+	it('names an omitted page the way the caller named it', async () => {
+		vi.stubEnv('MCP_CONTENT_MAX_BYTES', '1000');
+		const massQuery = vi.fn().mockResolvedValue(
+			massQueryResponse({
+				pages: [
+					massQueryPage('P1', 1, 100, 'x'.repeat(900)),
+					massQueryPage('Target', 2, 200, 'x'.repeat(900)),
+				],
+				redirects: [{ from: 'Shortcut', to: 'Target' }],
+			}),
+		);
+		const request = vi.fn().mockResolvedValue({ parse: { sections: [] } });
+		const mock = createMockMwn({ massQuery, request });
+		const ctx = contextOn(mock, { sections: new SectionServiceImpl() });
+
+		const text = assertStructuredSuccess(await read(ctx, ['P1', 'Shortcut']));
+
+		expect(text).toContain('    Value: Shortcut');
+	});
+
+	it('outlines the page a redirect led to when cutting it', async () => {
+		vi.stubEnv('MCP_CONTENT_MAX_BYTES', '1000');
+		const massQuery = vi.fn().mockResolvedValue(
+			massQueryResponse({
+				pages: [massQueryPage('Target', 1, 100, 'x'.repeat(1500))],
+				redirects: [{ from: 'Shortcut', to: 'Target' }],
+			}),
+		);
+		const request = vi.fn().mockResolvedValue({ parse: { sections: [] } });
+		const mock = createMockMwn({ massQuery, request });
+		const ctx = contextOn(mock, { sections: new SectionServiceImpl() });
+
+		await read(ctx, ['Shortcut']);
+
+		expect(request).toHaveBeenCalledWith(
+			expect.objectContaining({ page: 'Target', prop: 'sections' }),
+		);
 	});
 });

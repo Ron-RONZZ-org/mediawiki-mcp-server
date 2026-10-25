@@ -1,18 +1,13 @@
 import { z } from 'zod';
 import type { CallToolResult } from '@modelcontextprotocol/server';
 import type { ApiUploadParams } from 'types-mediawiki-api';
-import type { ApiUploadResponse } from 'mwn';
 import type { Tool } from '../runtime/tool.ts';
 import type { ToolContext } from '../runtime/context.ts';
-import { assertAllowedPath, UploadValidationError } from '../transport/uploadGuard.ts';
-import { readUploadBytes } from '../transport/uploadBytes.ts';
-import { formatEditComment, buildPageUrl } from '../wikis/utils.ts';
-import {
-	imageFactsSchema,
-	submitImageFacts,
-	wrapImageFactsFailure,
-	type ImageFacts,
-} from './imageFacts.ts';
+import { UploadValidationError } from '../wikis/uploadDirs.ts';
+import { fileExists } from '../wikis/fileExistence.ts';
+import { formatEditComment } from '../wikis/utils.ts';
+import { uploadedPayload } from '../wikis/fileUpload.ts';
+import { attachImageFacts, imageFactsSchema, type ImageFacts } from './imageFacts.ts';
 
 const inputSchema = {
 	filepath: z.string().describe('File path on the local disk'),
@@ -42,10 +37,8 @@ export const uploadFile: Tool<typeof inputSchema> = {
 		ctx: ToolContext,
 	): Promise<CallToolResult> {
 		let resolvedPath: string;
-		let bytes: Buffer;
 		try {
-			resolvedPath = await assertAllowedPath(filepath, ctx.uploadDirs.list());
-			bytes = await readUploadBytes(resolvedPath);
+			resolvedPath = await ctx.uploadDirs.resolve(filepath);
 		} catch (error) {
 			if (error instanceof UploadValidationError) {
 				return ctx.format.invalidInput(`Failed to upload file: ${error.message}`);
@@ -54,37 +47,22 @@ export const uploadFile: Tool<typeof inputSchema> = {
 		}
 
 		const mwn = await ctx.mwn();
+		// The upload ignores the wiki's warnings, `exists` among them, so the wiki
+		// would replace the file rather than refuse.
+		if (await fileExists(mwn, title)) {
+			return ctx.format.conflict(
+				`File "${title}" already exists. To replace it with a new revision, use update-file.`,
+			);
+		}
+
 		const params: ApiUploadParams = {
 			comment: formatEditComment(ctx, 'upload-file', comment),
 		};
-		const data: ApiUploadResponse = await ctx.edit.submitUploadFromBytes(
-			mwn,
-			bytes,
-			title.replace(/^File:/, ''),
-			title,
-			text,
-			params,
-		);
+		const data = await ctx.edit.submitUpload(mwn, resolvedPath, title, text, params);
 
-		const imageinfo = (
-			data as ApiUploadResponse & {
-				imageinfo?: { descriptionurl?: string; url?: string };
-			}
-		).imageinfo;
-		const filename = data.filename ?? title.replace(/^File:/, '');
+		const payload = await uploadedPayload(ctx, data, title);
 		const facts: ImageFacts = { description, license, author, licenseInfo, sourceUrl };
-		let imageFacts: { itemId?: string; warning?: string };
-		try {
-			imageFacts = await submitImageFacts(ctx, mwn, `File:${filename}`, facts);
-		} catch (error) {
-			throw wrapImageFactsFailure(`File:${filename}`, error);
-		}
-		return ctx.format.ok({
-			filename,
-			pageUrl: imageinfo?.descriptionurl ?? (await buildPageUrl(ctx, `File:${filename}`)),
-			...(imageinfo?.url !== undefined ? { fileUrl: imageinfo.url } : {}),
-			...(imageFacts.itemId !== undefined ? { imageItemId: imageFacts.itemId } : {}),
-			...(imageFacts.warning !== undefined ? { imageFactsWarning: imageFacts.warning } : {}),
-		});
+		const extra = await attachImageFacts(ctx, mwn, `File:${payload.filename}`, facts);
+		return ctx.format.ok({ ...payload, ...extra });
 	},
 };

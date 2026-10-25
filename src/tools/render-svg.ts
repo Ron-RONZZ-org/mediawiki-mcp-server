@@ -2,7 +2,8 @@ import { readFile, stat } from 'node:fs/promises';
 import { z } from 'zod';
 import type { CallToolResult, ImageContent, TextContent } from '@modelcontextprotocol/server';
 import type { Tool } from '../runtime/tool.ts';
-import { assertAllowedPath, UploadValidationError } from '../transport/uploadGuard.ts';
+import type { SharedContext } from '../runtime/context.ts';
+import { UploadValidationError } from '../wikis/uploadDirs.ts';
 import { rasteriseSvg, svgAspectRatio } from './svgRender.ts';
 
 const DEFAULT_WIDTH = 1024;
@@ -35,7 +36,7 @@ const inputSchema = {
 		),
 } as const;
 
-export const renderSvg: Tool<typeof inputSchema> = {
+export const renderSvg: Tool<typeof inputSchema, SharedContext> = {
 	name: 'render-svg',
 	description:
 		'Renders SVG to a PNG server-side and returns the image, without reading or writing the wiki. Accepts either SVG source or the path of an SVG file inside an upload directory (use the local_path from render_diagram to inspect a generated figure without re-sending its markup). Use it to look at your own drawing before presenting it: check the rendered image against the request, fix the SVG, and render again. Also returns the rendered dimensions and the declared aspect ratio, so geometry mistakes that are invisible in markup (wrong hidden edges, a mis-placed guide) show up here.',
@@ -61,7 +62,7 @@ export const renderSvg: Tool<typeof inputSchema> = {
 			source = svg;
 		} else if (path !== undefined) {
 			try {
-				const resolved = await assertAllowedPath(path, ctx.uploadDirs.list());
+				const resolved = await ctx.uploadDirs.resolve(path);
 				const { size } = await stat(resolved);
 				if (size > MAX_SVG_BYTES) {
 					return ctx.format.invalidInput(

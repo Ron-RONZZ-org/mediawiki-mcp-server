@@ -1,18 +1,27 @@
 import { describe, it, expect } from 'vitest';
 import type { ErrorCategory } from '../../src/errors/classifyError.ts';
-import { classifyError } from '../../src/errors/classifyError.ts';
+import { ClassifiedError, classifyError } from '../../src/errors/classifyError.ts';
 import { errorResult } from '../../src/results/response.ts';
 import { createMockMwnError } from '../helpers/mock-mwn-error.ts';
 import { assertStructuredError } from '../helpers/structuredResult.ts';
 import { CredentialResolutionError } from '../../src/errors/credentialResolutionError.ts';
+import { WikiTimeoutError } from '../../src/errors/wikiTimeoutError.ts';
 
 describe('classifyError', () => {
+	it('classifies an expired call budget as an upstream failure with a stable code', () => {
+		expect(classifyError(new WikiTimeoutError(150_000, 'calling'))).toEqual({
+			category: 'upstream_failure',
+			code: 'request-timeout',
+		});
+	});
+
 	describe('maps MW .code to category', () => {
 		const cases: Array<[string, ErrorCategory]> = [
 			['missingtitle', 'not_found'],
 			['nosuchrevid', 'not_found'],
 			['nosuchsection', 'not_found'],
 			['nofile', 'not_found'],
+			['missingtitle-createonly', 'not_found'],
 			['permissiondenied', 'permission_denied'],
 			['protectedpage', 'permission_denied'],
 			['protectedtitle', 'permission_denied'],
@@ -39,6 +48,12 @@ describe('classifyError', () => {
 			['immobilenamespace', 'invalid_input'],
 			['nonfilenamespace', 'invalid_input'],
 			['filetypemismatch', 'invalid_input'],
+			['toomanyvalues', 'invalid_input'],
+			['protect-invalidaction', 'invalid_input'],
+			['protect-invalidlevel', 'invalid_input'],
+			['invalidexpiry', 'invalid_input'],
+			['pastexpiry', 'invalid_input'],
+			['create-titleexists', 'invalid_input'],
 			['editconflict', 'conflict'],
 			['articleexists', 'conflict'],
 			['fileexists', 'conflict'],
@@ -77,6 +92,10 @@ describe('classifyError', () => {
 		expect(classifyError(err)).toEqual({ category: 'upstream_failure' });
 	});
 
+	it('treats a code naming a built-in object property as unknown', () => {
+		expect(classifyError({ code: 'constructor', message: 'x' }).category).toBe('upstream_failure');
+	});
+
 	it('falls back to upstream_failure for unknown codes', () => {
 		const err = createMockMwnError('somethingnew', 'A new kind of error');
 		expect(classifyError(err)).toEqual({ category: 'upstream_failure' });
@@ -106,6 +125,12 @@ describe('classifyError', () => {
 		['number', 42],
 	])('non-Error value (%s) → upstream_failure without code', (_label, value) => {
 		expect(classifyError(value)).toEqual({ category: 'upstream_failure' });
+	});
+
+	it('takes the category a pack already gave its own failure', () => {
+		expect(classifyError(new ClassifiedError('not_found', 'Subject not found'))).toEqual({
+			category: 'not_found',
+		});
 	});
 
 	describe('CredentialResolutionError', () => {

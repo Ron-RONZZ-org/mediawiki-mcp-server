@@ -27,15 +27,14 @@ export interface ExtensionPack {
 	 *  matches the tool-name prefix shared by tools in the pack. */
 	readonly id: string;
 
-	/** MediaWiki extension names accepted as proof the pack applies to the
-	 *  active wiki. Multiple entries handle aliases (Cargo / LIBRARIAN). The
-	 *  pack is allowed iff `wikiProbe.hasAnyExtension(activeWikiKey, extensionNames)`. */
+	/** MediaWiki extension names accepted as proof the pack applies to a wiki.
+	 *  Multiple entries handle aliases (Cargo / LIBRARIAN); see packToolRefusal. */
 	readonly extensionNames: readonly string[];
 
 	/** Tools provided by this pack. The unifying property is the gate, not the
 	 *  request mechanism — pack tools may use action API, rawRequest, or REST. */
 	// `Tool<any>[]` widens the heterogeneous-schema array; see `standardTools`
-	// in `src/tools/index.ts` for the variance rationale.
+	// in `src/tools/standardTools.ts` for the variance rationale.
 	// oxlint-disable-next-line typescript/no-explicit-any
 	readonly tools: readonly Tool<any>[];
 

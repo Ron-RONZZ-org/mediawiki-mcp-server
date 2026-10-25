@@ -2,17 +2,6 @@ import type { CallToolResult } from '@modelcontextprotocol/server';
 import type { ErrorEnvelope } from '../results/schemas.ts';
 import type { ErrorCategory } from '../errors/classifyError.ts';
 import { formatPayload } from './format.ts';
-import type { TruncationInfo } from './truncation.ts';
-
-export interface ResponseFormatter {
-	ok(payload: unknown): CallToolResult;
-	error(category: ErrorCategory, message: string, code?: string): CallToolResult;
-	notFound(message: string, code?: string): CallToolResult;
-	invalidInput(message: string): CallToolResult;
-	conflict(message: string, code?: string): CallToolResult;
-	permissionDenied(message: string, code?: string): CallToolResult;
-	truncationMarker(info: TruncationInfo): string;
-}
 
 export function structuredResult(data: unknown): CallToolResult {
 	return {
@@ -40,7 +29,7 @@ export function errorResult(
 	};
 }
 
-export class ResponseFormatterImpl implements ResponseFormatter {
+export class ResponseFormatter {
 	public ok(payload: unknown): CallToolResult {
 		return structuredResult(payload);
 	}
@@ -63,25 +52,5 @@ export class ResponseFormatterImpl implements ResponseFormatter {
 
 	public permissionDenied(message: string, code?: string): CallToolResult {
 		return this.error('permission_denied', message, code);
-	}
-
-	public truncationMarker(info: TruncationInfo): string {
-		switch (info.reason) {
-			case 'content-truncated': {
-				const sections =
-					info.sections && info.sections.length > 0
-						? ` Available sections: ${info.sections.map((s, i) => `${i} (${s || 'Lead'})`).join(', ')}.`
-						: '';
-				return `Content (${info.itemNoun}) truncated at ${info.returnedBytes} of ${info.totalBytes} bytes.${sections} ${info.remedyHint}`;
-			}
-			case 'more-available':
-				return `More results available. Returned ${info.returnedCount} ${info.itemNoun}. To fetch the next segment, call ${info.toolName} again with ${info.continueWith.param}=${info.continueWith.value}.`;
-			case 'capped-no-continuation':
-				return `Result capped at ${info.limit} ${info.itemNoun}. Additional ${info.itemNoun} may exist — ${info.narrowHint}`;
-			default: {
-				const _exhaustive: never = info;
-				return _exhaustive;
-			}
-		}
 	}
 }

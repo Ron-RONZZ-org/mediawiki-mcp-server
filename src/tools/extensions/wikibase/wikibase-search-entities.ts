@@ -4,7 +4,8 @@ import type { Tool } from '../../../runtime/tool.ts';
 import type { ToolContext } from '../../../runtime/context.ts';
 import type { TruncationInfo } from '../../../results/truncation.ts';
 import { LANGUAGE_CODE, resolveLanguage } from './wikibaseApi.ts';
-import { runSparqlBindings, SparqlError } from './sparql.ts';
+import { ClassifiedError } from '../../../errors/classifyError.ts';
+import { runSparqlBindings } from './sparql.ts';
 import { resolveSiteInfo } from '../../../wikis/siteInfo.ts';
 
 const HARD_LIMIT = 50;
@@ -155,7 +156,7 @@ async function searchContains(
 	language: string | undefined,
 	limit: number,
 ): Promise<CallToolResult> {
-	const { key } = ctx.activeWiki.get();
+	const { key } = ctx.wiki;
 	const endpoint = ((await resolveSiteInfo(ctx, key)).sparqlEndpoint ?? '').trim();
 	if (endpoint === '') {
 		return ctx.format.invalidInput(
@@ -192,7 +193,7 @@ async function searchContains(
 	try {
 		results = await runSparqlBindings(endpoint, sparql, limit);
 	} catch (err) {
-		if (err instanceof SparqlError) {
+		if (err instanceof ClassifiedError) {
 			return ctx.format.error(err.category, err.message);
 		}
 		throw err;

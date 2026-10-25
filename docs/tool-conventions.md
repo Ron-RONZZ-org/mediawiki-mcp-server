@@ -68,7 +68,7 @@ Do not restate this in prose. Prose is for context the schema cannot express.
 
 - **Tool names** appear bare in prose (`get-page`, not in backticks).
 - **Parameter names alone** appear bare (e.g., "paginate with continueFrom"). Use backticks only when the bare form would collide with an English word (e.g., the `wiki` parameter in `oauth-logout`).
-- **Parameter assignments** are bare for primitive RHS (`section=N`, `metadata=true`) and use single quotes for enum string values (`mode='append'`, `mode='prepend'`).
+- **Parameter assignments** are bare for primitive RHS (`section=N`, `metadata=true`) and use single quotes for enum string values (`operation='append'`, `operation='find-replace'`).
 - **Wiki syntax and code identifiers** use backticks: `[[Category:Person]]`, `_pageData`, `bucket("exchange")`, `MCP_CONTENT_MAX_BYTES`.
 
 #### Avoid tautology
@@ -133,21 +133,29 @@ Parameter descriptions must:
 
 #### Result caps and truncation signaling
 
-Tools that return variable-size result sets or content bodies have a per-call cap. When the cap is hit, the tool appends a trailing text block to `content` describing the truncation. Three shapes:
+Tools that return variable-size result sets or content bodies have a per-call cap. When the cap is hit, the tool sets a `truncation` field on its payload, which reaches the caller through both response channels: rendered as prose in `content[0]` and typed in `structuredContent`. Three shapes, each a variant of `TruncationInfo` in `src/results/truncation.ts`:
 
-- **With continuation** (the caller can fetch more): `"More results available. Returned N <items>. To fetch the next segment, call <tool-name> again with <param>=<value>."`
-- **Without continuation** (the only remedy is a narrower query): `"Result capped at N <items>. Additional <items> may exist — <narrow-hint>."`
-- **Content truncated** (the response body exceeded the byte budget): `"Content truncated at N of M bytes. [Available sections: 0 (Lead), 1 (<heading>), ....] <remedy>"` where `<remedy>` is a full sentence of the form `"To <purpose>, <action>."` (e.g. `"To read a specific section, call get-page again with section=N."`), matching the connector-phrase pattern used by the `more-available` shape.
+- **With continuation** (`more-available`, the caller can fetch more): the count returned, the item noun, and the parameter and value that fetch the next segment.
+- **Without continuation** (`capped-no-continuation`, the only remedy is a narrower query): the count returned, the limit, and a hint naming the narrowing available.
+- **Content truncated** (`content-truncated`, the response body exceeded the byte budget): the bytes returned and the bytes available, a `remedyHint` — a full sentence of the form `"To <purpose>, <action>."` — and, where narrower targets exist, a `sections` list naming them.
 
-Where the narrowing a parameter offers is exhausted — the call already names the single item the response can be narrowed to, so naming it again returns the same response — no action remains, and the `<remedy>` says so instead. A parameter that still has somewhere to go is repeated as normal: `get-page` truncating one oversize section still points at `section=N`, because the other sections remain.
+Each `sections` entry carries the number that addresses it, as `"3 (History)"`. That number is the section's own `index` from the API, never its position in the list: a transcluded heading occupies a position but no `section=` value addresses it, so numbering by position sends a caller to a different section than the one it read. Transcluded headings are left out of the list for the same reason.
 
-Descriptions state the default cap with a "by default" qualifier (e.g., "truncated at 50000 bytes by default"). The qualifier is load-bearing because operators can override `DEFAULT_CONTENT_MAX_BYTES` via `MCP_CONTENT_MAX_BYTES`; without it, descriptions misrepresent customised deployments. If continuation is supported, descriptions reference the continuation parameter by name so the LLM can pick the right parameter without inspecting the schema.
+Where the narrowing a parameter offers is exhausted — the call already names the single item the response can be narrowed to, so naming it again returns the same response — no action remains, and the `remedyHint` says so instead. `get-page` truncating a `section=N` read names that section's own subsections, the only narrower target it has; where the section has none, the remedy says no narrower read exists rather than pointing back at the call that just truncated.
 
-The byte budget for content bodies is centrally resolved via `contentMaxBytes()` in `src/results/truncation.ts` — it reads the `MCP_CONTENT_MAX_BYTES` environment variable and falls back to `DEFAULT_CONTENT_MAX_BYTES` (50000). Tools do not invent their own limits. Section-aware tools (`get-page`, `get-pages`) include a section list in the marker so the caller can navigate without a follow-up "list sections" call.
+Descriptions state the default cap with a "by default" qualifier (e.g., "truncated at 75000 bytes by default"). The qualifier is load-bearing because operators can override `DEFAULT_CONTENT_MAX_BYTES` via `MCP_CONTENT_MAX_BYTES`; without it, descriptions misrepresent customised deployments. If continuation is supported, descriptions reference the continuation parameter by name so the LLM can pick the right parameter without inspecting the schema.
+
+The byte budget for content bodies is centrally resolved via `contentMaxBytes()` in `src/results/truncation.ts` — it reads the `MCP_CONTENT_MAX_BYTES` environment variable and falls back to `DEFAULT_CONTENT_MAX_BYTES` (75000). Tools do not invent their own limits. A cut body is a byte-exact prefix of the whole: the cut moves back to a character boundary rather than splitting a multi-byte character, because a caller may write the returned text back to the wiki and it must carry nothing the page did not. Section-aware tools (`get-page`, `get-pages`) include a section list in the marker so the caller can navigate without a follow-up "list sections" call.
+
+The budget is per response, not per body, and it bounds the content bodies rather than the whole payload: the metadata around them is small and fixed, and counting it would make the number depend on how many fields a tool happens to return. A tool returning one body caps that body. A tool returning a sequence of bodies (`get-pages`) spends the one budget across them, keeping whole items in the order asked for and naming the items past the point where it runs out, because a cut body in a batch is neither usable nor worth its bytes. Row listings (`cargo-query`, `smw-query`, `bucket-query`) spend it the same way on whole rows, measured as JSON; a row that alone exceeds the budget is left out, and the marker names how to narrow it or skip it. `get-file-data` is the exception the rule needs stating against: binary cannot be truncated, so it sets its own `MCP_FILE_DATA_MAX_BYTES` and makes over-cap a hard error.
 
 This convention doesn't apply to tools that reject oversize input (e.g. `get-pages`' 50-title cap): those return an error, not a truncation marker.
 
-There is no MCP-spec-level budget for tool output. Cap sizes are chosen to stay well under Anthropic's 25,000-token Claude Code default ([Writing tools for agents](https://www.anthropic.com/engineering/writing-tools-for-agents)) and revisited when [MCP discussion #2211](https://github.com/modelcontextprotocol/modelcontextprotocol/discussions/2211) ratifies a standard.
+There is no MCP-spec-level budget for tool output. Cap sizes are chosen to stay under Anthropic's 25,000-token Claude Code default ([Writing tools for agents](https://www.anthropic.com/engineering/writing-tools-for-agents)), which a client enforces by cutting the response itself, unmarked — the failure the cap exists to pre-empt. Wikitext runs around three bytes to the token, markup being denser than prose, so the 75000-byte default sits near 25,000 tokens and a larger one would not. Revisit when [MCP discussion #2211](https://github.com/modelcontextprotocol/modelcontextprotocol/discussions/2211) ratifies a standard.
+
+#### Response channels
+
+A successful result carries its payload twice: as prose in `content[0]` and as JSON in `structuredContent`. Which channel the model sees depends on the client, and it may be only one of them, so both carry the complete payload. No tool declares an `outputSchema`, and none should until a client needs the contract: the declaration reaches every client through `tools/list`, whether or not it uses it.
 
 #### Default-value omission in list responses
 
@@ -161,7 +169,7 @@ MCP's `ToolAnnotations` exposes four boolean hints that shape how clients route 
 
 Semantics (from the MCP 2025-11-25 spec):
 
-- **`readOnlyHint`** — if `true`, the tool does not modify its environment. Master switch; when `true`, the other behavioural hints are semantically irrelevant (but still set explicitly for clarity and cross-client compatibility).
+- **`readOnlyHint`** — if `true`, the tool does not modify its environment. Master switch; when `true`, the other behavioural hints are semantically irrelevant (but still set explicitly for clarity and cross-client compatibility). This server reads it too: a tool that sets it to `false` counts as a write unless it sets `wikiScoped: false`, so it needs [sign-in](deployment.md#hosted-oauth-sign-in) where hosted OAuth sign-in is configured, is refused on a wiki configured [`readOnly: true`](configuration.md), and is hidden when every configured wiki is.
 - **`destructiveHint`** — if `true`, the tool may perform destructive updates (delete, overwrite, remove). If `false`, the tool performs only additive updates (create new without replacing). Only meaningful when `readOnlyHint: false`. Spec default is `true`.
 - **`idempotentHint`** — if `true`, calling the tool repeatedly with the same arguments has no additional effect on the environment beyond the first call. A call that errors but leaves state unchanged still counts as idempotent. Only meaningful when `readOnlyHint: false`. Spec default is `false`.
 - **`openWorldHint`** — if `true`, the tool interacts with external entities (e.g. a remote API). If `false`, the tool's world is self-contained (server-local state only). Spec default is `true`.
@@ -171,7 +179,7 @@ Semantics (from the MCP 2025-11-25 spec):
 - Pure read-only tools: `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true` (for tools that read from the wiki).
 - Write tools that delete, overwrite, or remove: `readOnlyHint: false`, `destructiveHint: true`.
 - Write tools that only add (create, append, upload-new): `readOnlyHint: false`, `destructiveHint: false`.
-- If idempotency depends on which parameters a call uses (an `update-page` full-page replace is idempotent; `mode='append'` is not), declare the weakest case: `idempotentHint: false`.
+- If idempotency depends on which parameters a call uses (an `update-page` full-page replace is idempotent; `operation='append'` is not), declare the weakest case: `idempotentHint: false`.
 - If the tool does not make network calls and only mutates server-local state (e.g. `add-wiki` / `remove-wiki` editing the wiki registry), `openWorldHint: false`.
 
 #### Tool titles

@@ -4,8 +4,13 @@ import type { Mwn } from 'mwn';
 import type { Tool } from '../runtime/tool.ts';
 import type { ToolContext } from '../runtime/context.ts';
 import { buildPageUrl } from '../wikis/utils.ts';
-import { truncateByBytes, type TruncationInfo } from '../results/truncation.ts';
-import { toOutlineLines } from '../services/sectionService.ts';
+import {
+	contentMaxBytes,
+	truncateByBytes,
+	type TruncatedContent,
+	type TruncationInfo,
+} from '../results/truncation.ts';
+import { sectionContentTruncation } from '../services/sectionMarker.ts';
 
 const MAX_TITLES = 50;
 
@@ -48,13 +53,6 @@ type FetchResult = {
 	byResolvedTitle: Map<string, ApiPageLike>;
 	aliasTo: Map<string, string>;
 	redirectFrom: Set<string>;
-};
-
-type PendingTruncation = {
-	entryIndex: number;
-	title: string;
-	returnedBytes: number;
-	totalBytes: number;
 };
 
 const inputSchema = {
@@ -129,16 +127,6 @@ async function fetchPages(
 		aliasTo: new Map(),
 		redirectFrom: new Set(),
 	};
-	if (!args.followRedirects) {
-		// mwn.read() defaults to following redirects, which would rewrite the requested
-		// title to the target and break our lookup. Emit the redirect pseudo-page as-is.
-		const response = await mwn.read(args.titles, { rvprop, redirects: false });
-		const pages: ApiPageLike[] = Array.isArray(response) ? response : [response];
-		for (const page of pages) {
-			result.byResolvedTitle.set(page.title, normalisePage(page, ctx));
-		}
-		return result;
-	}
 	const responses = await mwn.massQuery(
 		{
 			action: 'query',
@@ -146,12 +134,16 @@ async function fetchPages(
 			prop: 'revisions',
 			rvprop,
 			rvslots: 'main',
-			redirects: true,
+			redirects: args.followRedirects,
 			formatversion: '2',
 		},
 		'titles',
 	);
 	for (const response of responses) {
+		// massQuery hands back a failed batch as an entry instead of rejecting.
+		if (response instanceof Error) {
+			throw response;
+		}
 		const query = response?.query;
 		if (!query) {
 			continue;
@@ -179,8 +171,6 @@ async function buildPageEntry(
 	page: ApiPageLike,
 	viaRedirect: boolean,
 	args: GetPagesArgs,
-	entryIndex: number,
-	pending: PendingTruncation[],
 	ctx: ToolContext,
 ): Promise<PageEntry> {
 	const rev = page.revisions?.[0];
@@ -199,59 +189,115 @@ async function buildPageEntry(
 			: {}),
 	};
 	if (args.content === BatchContentFormat.source && rev?.content !== undefined) {
-		const truncated = truncateByBytes(rev.content);
-		entry.source = truncated.text;
-		if (truncated.truncated) {
-			pending.push({
-				entryIndex,
-				title: page.title,
-				returnedBytes: truncated.returnedBytes,
-				totalBytes: truncated.totalBytes,
-			});
-		}
+		entry.source = rev.content;
 	}
 	return entry;
 }
 
-async function applyTruncations(
+// The byte budget is a response budget, not a per-body one: it was applied to
+// each body on its own, so a call for the maximum 50 titles could return 50
+// times it.
+//
+// Pages are kept whole, in the order asked for, while the bodies returned stay
+// inside the budget; the first page that does not fit ends the response and it
+// and the rest are named instead. Cutting into a page nobody can finish reading
+// serves no one, and this tool is used to sync and diff whole pages. The one
+// exception is a first page larger than the whole budget, which is cut rather
+// than dropped, so a caller still receives something. At most one page's body
+// is ever cut, and it is always the first. Only bodies are counted; the
+// metadata around them is small and fixed.
+async function fitToResponseBudget(
 	mwn: Mwn,
 	ctx: ToolContext,
 	entries: PageEntry[],
-	pending: PendingTruncation[],
-): Promise<void> {
-	if (pending.length === 0) {
-		return;
+): Promise<{ pages: PageEntry[]; omitted: string[] }> {
+	const budget = contentMaxBytes();
+	const pages: PageEntry[] = [];
+	let used = 0;
+	let keptABody = false;
+	for (const [index, entry] of entries.entries()) {
+		if (entry.source === undefined) {
+			pages.push(entry);
+			continue;
+		}
+		const size = Buffer.byteLength(entry.source, 'utf8');
+		// Keyed on whether any body has been kept, not on the position: an
+		// earlier entry can carry no body at all — a revision whose text the wiki
+		// withholds — and dropping the first real one would answer a request for
+		// source with no source anywhere in the response.
+		if (!keptABody && size > budget) {
+			const truncated = truncateByBytes(entry.source, budget);
+			pages.push({
+				...entry,
+				source: truncated.text,
+				truncation: await cutTruncation(mwn, ctx, entry, truncated),
+			});
+			used = truncated.returnedBytes;
+			keptABody = true;
+			continue;
+		}
+		if (used + size > budget) {
+			// Named as the caller named them: a page it asked for by a redirect or
+			// an unnormalised title is one it cannot otherwise account for.
+			const omitted = entries.slice(index).map((e) => e.requestedTitle ?? e.title ?? '');
+			return { pages, omitted };
+		}
+		pages.push(entry);
+		used += size;
+		keptABody = true;
 	}
-	const sectionLists = await Promise.all(
-		pending.map(async (p) => toOutlineLines(await ctx.sections.list(mwn, p.title))),
-	);
-	pending.forEach((p, i) => {
-		entries[p.entryIndex].truncation = {
-			reason: 'content-truncated',
-			returnedBytes: p.returnedBytes,
-			totalBytes: p.totalBytes,
-			itemNoun: 'wikitext',
-			toolName: 'get-pages',
-			sections: sectionLists[i],
-			remedyHint: 'To read a specific section, call get-page again with section=N.',
-		};
+	return { pages, omitted: [] };
+}
+
+async function cutTruncation(
+	mwn: Mwn,
+	ctx: ToolContext,
+	entry: PageEntry,
+	truncated: TruncatedContent,
+): Promise<TruncationInfo> {
+	return sectionContentTruncation({
+		entries: await ctx.sections.list(mwn, entry.title ?? entry.requestedTitle ?? ''),
+		// get-pages reads whole pages, so the narrowing on offer is always the
+		// page's own sections.
+		section: undefined,
+		itemNoun: 'wikitext',
+		toolName: 'get-pages',
+		returnedBytes: truncated.returnedBytes,
+		totalBytes: truncated.totalBytes,
 	});
+}
+
+// A continuation exists and is exact — the names of the pages left out — so the
+// marker carries it rather than reporting a cap. Reporting one would also have
+// to name a number: the cap that fired is a byte budget, and stating it as a
+// count of pages would advertise a per-page limit this tool does not have.
+function omittedPagesTruncation(returnedCount: number, omitted: string[]): TruncationInfo {
+	return {
+		reason: 'more-available',
+		returnedCount,
+		itemNoun: 'pages',
+		toolName: 'get-pages',
+		// Pipe-separated because a page title may contain a comma but never a
+		// pipe, which is MediaWiki's own separator for a multi-value argument.
+		continueWith: { param: 'titles', value: omitted.join('|') },
+	};
 }
 
 async function assembleEntries(
 	args: GetPagesArgs,
 	fetched: FetchResult,
 	ctx: ToolContext,
-): Promise<{ entries: PageEntry[]; missing: string[]; pending: PendingTruncation[] }> {
+): Promise<{ entries: PageEntry[]; missing: string[] }> {
 	const entryPromises: Promise<PageEntry>[] = [];
 	const emitted = new Set<string>();
 	const missing: string[] = [];
 	const missingSeen = new Set<string>();
-	const pending: PendingTruncation[] = [];
 	for (const requested of args.titles) {
-		const { resolved, viaRedirect } = args.followRedirects
-			? resolveChain(requested, fetched.aliasTo, fetched.redirectFrom)
-			: { resolved: requested, viaRedirect: false };
+		const { resolved, viaRedirect } = resolveChain(
+			requested,
+			fetched.aliasTo,
+			fetched.redirectFrom,
+		);
 		const page = fetched.byResolvedTitle.get(resolved);
 		if (!page || page.missing) {
 			if (!missingSeen.has(requested)) {
@@ -264,17 +310,15 @@ async function assembleEntries(
 			continue;
 		}
 		emitted.add(page.title);
-		entryPromises.push(
-			buildPageEntry(requested, page, viaRedirect, args, entryPromises.length, pending, ctx),
-		);
+		entryPromises.push(buildPageEntry(requested, page, viaRedirect, args, ctx));
 	}
 	const entries = await Promise.all(entryPromises);
-	return { entries, missing, pending };
+	return { entries, missing };
 }
 
 export const getPages: Tool<typeof inputSchema> = {
 	name: 'get-pages',
-	description: `Returns multiple wiki pages in one call (wikitext source or metadata only). Suited to reading a cluster of related pages, diffing a page family, or syncing pages to local storage. Accepts up to ${MAX_TITLES} titles; missing pages are reported inline (not as errors). Each page's content is truncated at 50000 bytes by default with a trailing marker listing available sections; get-page with section=N fetches a specific section. For a single page or HTML output, use get-page. requestedTitle is included only when it differs from the resolved title.`,
+	description: `Returns multiple wiki pages in one call (wikitext source or metadata only). Suited to reading a cluster of related pages, diffing a page family, or syncing pages to local storage. Accepts up to ${MAX_TITLES} titles; missing pages are reported inline (not as errors). One byte budget covers the whole response, 75000 bytes by default: pages come back whole in the order asked for until it is spent, and the pages past that point are named rather than returned, so a follow-up call for those names fetches the rest. Only a first page larger than the budget on its own is truncated, with a marker reporting how much of it was returned and which sections a narrower read can target. For a single page or HTML output, use get-page. requestedTitle is included only when it differs from the resolved title.`,
 	inputSchema,
 	annotations: {
 		title: 'Get pages',
@@ -297,12 +341,13 @@ export const getPages: Tool<typeof inputSchema> = {
 				? 'ids|timestamp|contentmodel|content'
 				: 'ids|timestamp|contentmodel';
 		const fetched = await fetchPages(mwn, ctx, args, rvprop);
-		const { entries, missing, pending } = await assembleEntries(args, fetched, ctx);
-		await applyTruncations(mwn, ctx, entries, pending);
+		const { entries, missing } = await assembleEntries(args, fetched, ctx);
+		const { pages, omitted } = await fitToResponseBudget(mwn, ctx, entries);
 
 		return ctx.format.ok({
-			pages: entries,
+			pages,
 			...(missing.length > 0 ? { missing } : {}),
+			...(omitted.length > 0 ? { truncation: omittedPagesTruncation(pages.length, omitted) } : {}),
 		});
 	},
 };

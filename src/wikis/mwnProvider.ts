@@ -1,13 +1,13 @@
-import { Mwn, type MwnOptions } from 'mwn';
+import type { Mwn, MwnOptions } from 'mwn';
 import { USER_AGENT } from '../runtime/constants.ts';
+import { callDeadline, WIKI_CONNECT_TIMEOUT_MS } from '../runtime/callDeadline.ts';
+import { withCallBounds } from './abortableMwn.ts';
 import type { ExecSecret, WikiConfig } from '../config/loadConfig.ts';
-import { runExecSecret } from './execSecret.ts';
 import { redactAuthorizationHeader, wrapMwnErrors } from './mwnErrorSanitizer.ts';
 import type { WikiRegistry } from './wikiRegistry.ts';
-import type { ActiveWiki } from './activeWiki.ts';
 
 export interface MwnProvider {
-	get(wikiKey?: string): Promise<Mwn>;
+	get(wikiKey: string): Promise<Mwn>;
 	invalidate(wikiKey: string): void;
 }
 
@@ -23,27 +23,21 @@ export class MwnProviderImpl implements MwnProvider {
 
 	public constructor(
 		private readonly wikis: WikiRegistry,
-		private readonly activeWiki: ActiveWiki,
-		private readonly getRuntimeToken: () => string | undefined,
+		private readonly getRuntimeToken: (wikiKey: string) => string | undefined,
+		private readonly createMwn: (options: MwnOptions) => Mwn,
+		private readonly runExecSecret: (spec: ExecSecret, descriptor: string) => Promise<string>,
 	) {}
 
-	public async get(wikiKey?: string): Promise<Mwn> {
-		let key: string;
-		let config: Readonly<WikiConfig> | undefined;
-		if (wikiKey !== undefined) {
-			key = wikiKey;
-			config = this.wikis.get(wikiKey);
-			if (!config) {
-				throw new Error(`Wiki "${wikiKey}" not found`);
-			}
-		} else {
-			({ key, config } = this.activeWiki.get());
+	public async get(wikiKey: string): Promise<Mwn> {
+		const config = this.wikis.get(wikiKey);
+		if (!config) {
+			throw new Error(`Wiki "${wikiKey}" not found`);
 		}
-		return this.getInstance(key, config);
+		return this.getInstance(wikiKey, config);
 	}
 
 	private async getInstance(key: string, config: Readonly<WikiConfig>): Promise<Mwn> {
-		const runtimeToken = this.getRuntimeToken();
+		const runtimeToken = this.getRuntimeToken(key);
 		if (runtimeToken) {
 			return this.create(key, config, runtimeToken);
 		}
@@ -83,7 +77,7 @@ export class MwnProviderImpl implements MwnProvider {
 		const cacheKey = `${wikiKey} ${field}`;
 		let pending = this.secretCache.get(cacheKey);
 		if (!pending) {
-			pending = runExecSecret(raw, `the "${field}" credential for wiki "${wikiKey}"`);
+			pending = this.runExecSecret(raw, `the "${field}" credential for wiki "${wikiKey}"`);
 			this.secretCache.set(cacheKey, pending);
 			// Evict a rejected resolution so the next use of the wiki retries
 			// rather than permanently caching a transient failure.
@@ -118,24 +112,38 @@ export class MwnProviderImpl implements MwnProvider {
 			apiUrl: `${server}${scriptpath}/api.php`,
 			userAgent: USER_AGENT,
 		};
+		if (effectiveToken) {
+			options.OAuth2AccessToken = effectiveToken;
+		} else if (username && password) {
+			options.username = username;
+			options.password = password;
+			// Force `assert=user` so MediaWiki returns `assertuserfailed` (instead of
+			// silently downgrading to anonymous) once the BotPassword session expires.
+			// mwn already auto-relogs in and retries on that code; without `assert`,
+			// writes would fail with `permissiondenied` and no recovery would occur.
+			options.defaultParams = { ...options.defaultParams, assert: 'user' };
+		}
 
-		let instance: Mwn;
+		const instance = this.createMwn(options);
 		try {
+			// `Mwn.init` constructs and signs in in one step, leaving nowhere to
+			// bound three round-trips that each fund a fresh retry ladder. The
+			// branch is ours to make because the provider only ever sets an OAuth 2
+			// token or a bot-password pair. No cancellation: `getInstance` hands
+			// this promise to every concurrent caller, and one caller walking away
+			// must not fail the others.
+			const connecting = withCallBounds(
+				instance,
+				callDeadline(WIKI_CONNECT_TIMEOUT_MS, 'connecting'),
+			);
 			if (effectiveToken) {
-				options.OAuth2AccessToken = effectiveToken;
-				instance = await Mwn.init(options);
+				// Makes no request, so it has no reason to go through the view.
+				instance.initOAuth();
+				await connecting.getTokensAndSiteInfo();
 			} else if (username && password) {
-				options.username = username;
-				options.password = password;
-				// Force `assert=user` so MediaWiki returns `assertuserfailed` (instead of
-				// silently downgrading to anonymous) once the BotPassword session expires.
-				// mwn already auto-relogs in and retries on that code; without `assert`,
-				// writes would fail with `permissiondenied` and no recovery would occur.
-				options.defaultParams = { ...options.defaultParams, assert: 'user' };
-				instance = await Mwn.init(options);
+				await connecting.login();
 			} else {
-				instance = new Mwn(options);
-				await instance.getSiteInfo();
+				await connecting.getSiteInfo();
 			}
 		} catch (error: unknown) {
 			redactAuthorizationHeader(error, effectiveToken);

@@ -28,11 +28,11 @@ Covers configuration topics beyond the basic `config.json` shape documented in [
 | `username` | No | Bot username (fallback when OAuth2 is not available) |
 | `password` | No | Bot password (fallback when OAuth2 is not available) |
 | `private` | No | Whether the wiki requires authentication to read (default: `false`) |
-| `readOnly` | No | When `true`, hides the 🔐 write tools from `tools/list` while this wiki is active. Pairs with `allowWikiManagement: false` for a [hosted read-only endpoint](deployment.md). Default: `false` |
+| `readOnly` | No | When `true`, the 🔐 write tools are refused on this wiki, and hidden from `tools/list` when every configured wiki sets it. Pairs with `allowWikiManagement: false` for a [hosted read-only endpoint](deployment.md). Default: `false` |
 | `tags` | No | Change tag(s) to apply to every write (string or array). The tag must exist and be active at `Special:Tags` — see [change tags](#change-tags-tags) for details. |
 | `attributeEdits` | No | Whether writes carry the `(via <tool> on MediaWiki MCP Server)` suffix in their edit summary. Default: `true`. See [edit attribution](#edit-attribution-attributeedits). |
 
-URLs returned to the caller — page links, and the `server` field in `list-wikis` and `mcp://wikis` resources — are built from the wiki's public address, so an internal `server` hostname does not leak into links. If the wiki cannot be reached, they fall back to the configured `server`.
+URLs returned to the caller — page links, and the `server` field in `list-wikis` and `mcp://wikis` resources — are built from the public address the wiki reports, so an internal `server` hostname does not leak into links. Until the server has read that address, they use the configured `server`; a wiki on an internal host is only read once the host is listed in [`MCP_TRUSTED_HOSTS`](deployment.md#outbound-ssrf-guard).
 
 ## Environment variable substitution
 
