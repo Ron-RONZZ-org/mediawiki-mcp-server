@@ -562,6 +562,22 @@
                         "title"
                     ]
                 },
+                "transcript": {
+                    "fields": [
+                        "title",
+                        "description",
+                        "language",
+                        "additionalLanguages",
+                        "otherLanguage",
+                        "labelLanguage",
+                        "authors",
+                        "year",
+                        "accessUrl"
+                    ],
+                    "requiredOnCreate": [
+                        "title"
+                    ]
+                },
                 "text": {
                     "fields": [
                         "title",
