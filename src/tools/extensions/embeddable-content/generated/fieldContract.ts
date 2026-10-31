@@ -60,6 +60,7 @@ export const SOURCE_CLASS_KEYS = [
 	'map',
 	'presentation',
 	'dataset',
+	'transcript',
 	'text',
 	'law',
 ] as const;
