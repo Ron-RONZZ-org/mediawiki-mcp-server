@@ -55,7 +55,7 @@ function schemaFieldKeys(schema: Record<string, unknown>, toolLevel: string[]): 
 	return Object.keys(schema).filter((key) => !toolLevel.includes(key));
 }
 
-const TOOL_LEVEL = ['kind', 'classKey', 'qid', 'confirmDuplicate', 'comment'];
+const TOOL_LEVEL = ['kind', 'classKey', 'qid', 'confirmDuplicate', 'collisionAction', 'comment'];
 
 describe('embeddable field contract', () => {
 	it('generates the special-content tuple from the contract', () => {

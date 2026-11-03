@@ -4,6 +4,8 @@ import type { Tool } from '../../../runtime/tool.ts';
 import type { ToolContext } from '../../../runtime/context.ts';
 import { ITEM_ID, DAY_DATE, resolveItemIdOrLabel } from './embeddableWrite.ts';
 import {
+	collisionHitOf,
+	collisionHitResult,
 	duplicateHitOf,
 	duplicateHitResult,
 	unresolvedWriteResult,
@@ -169,13 +171,19 @@ const inputSchema = {
 		.describe(
 			"Set true to create the item anyway when the wiki's duplication guard flags an existing item (the same authority id or URL, or a highly similar class-filtered label) as a duplicate of the record. The create is otherwise refused and the existing item returned instead. Forces the create; can produce a second item for the same entity.",
 		),
+	collisionAction: z
+		.enum(['reuse', 'delete', 'duplicate'])
+		.optional()
+		.describe(
+			'Resolve an exact-label collision (an item with this label already exists and its sitelink points at another page). reuse applies this record to the existing item and moves its sitelink to the new page; delete deletes the existing item first (needs the delete right); duplicate creates a new item with the next free " (2)", " (3)", … label suffix.',
+		),
 	comment: z.string().optional().describe('Edit summary, appended to the generated one.'),
 } as const;
 
 export const embeddableAddSemanticEntity: Tool<typeof inputSchema> = {
 	name: 'embeddable-add-semantic-entity',
 	description:
-		"Creates or updates a person, software (FOSS), collective, fictional-character or other-class item on a wiki with the EmbeddableContent extension, mirroring the Special:AddPerson / AddSoftware / AddCollective / AddFictionalCharacter forms, and returns the item ID and latest revision. Requires the edit right.\n\nThe item is created by the wiki's own semantic-entity service (action=addsemanticentity): each kind carries its form's fields as statements — person given/family name as the label plus birth/death dates and places, ORCID/VIAF/ISNI/Wikidata/OpenAlex author IDs and official website; software label plus developer/license/operating-system/user-interface/has-use item IDs, programming language, website/repository/documentation URLs; collective label plus the collectiveClass (default organization), parent organization and official website; fictional-character given/family name as the label \"{given} {family} (fictional character)\" with present-in-work items and an auto-generated description; kind=other is the catch-all with instanceOf. The classic Person:/Collective:/FOSS: page + sitelink are created like the forms. Portraits and logos (image uploads) are not written by this tool, and kind=other takes no raw statements — use wikibase-edit-entity for raw statement JSON. A create that matches an existing item (the same authority id or URL, or a highly similar class-filtered label) is refused by the wiki's duplication guard, which returns the existing item instead of creating — update that item instead, or set confirmDuplicate to force the create. When the wiki's response is lost and no item comes back, the tool checks whether an item with the expected label exists and reports the outcome before you retry.\n\nResolve entity IDs with wikibase-search-entities first; a programming language accepts a label and is resolved. Set qid to update an existing item instead: statements on the fields you provide are replaced, blank fields keep the existing statements, and the class is never changed. For the field tables, property IDs and examples, call embeddable-describe-entity-type first.",
+		"Creates or updates a person, software (FOSS), collective, fictional-character or other-class item on a wiki with the EmbeddableContent extension, mirroring the Special:AddPerson / AddSoftware / AddCollective / AddFictionalCharacter forms, and returns the item ID and latest revision. Requires the edit right.\n\nThe item is created by the wiki's own semantic-entity service (action=addsemanticentity): each kind carries its form's fields as statements — person given/family name as the label plus birth/death dates and places, ORCID/VIAF/ISNI/Wikidata/OpenAlex author IDs and official website; software label plus developer/license/operating-system/user-interface/has-use item IDs, programming language, website/repository/documentation URLs; collective label plus the collectiveClass (default organization), parent organization and official website; fictional-character given/family name as the label \"{given} {family} (fictional character)\" with present-in-work items and an auto-generated description; kind=other is the catch-all with instanceOf. The classic Person:/Collective:/FOSS: page + sitelink are created like the forms. Portraits and logos (image uploads) are not written by this tool, and kind=other takes no raw statements — use wikibase-edit-entity for raw statement JSON. A create that matches an existing item (the same authority id or URL, or a highly similar class-filtered label) is refused by the wiki's duplication guard, which returns the existing item instead of creating — update that item instead, or set confirmDuplicate to force the create. A create whose label exactly matches an item whose sitelink points at another page returns a collision instead: choose collisionAction=reuse|delete|duplicate. When the wiki's response is lost and no item comes back, the tool checks whether an item with the expected label exists and reports the outcome before you retry.\n\nResolve entity IDs with wikibase-search-entities first; a programming language accepts a label and is resolved. Set qid to update an existing item instead: statements on the fields you provide are replaced, blank fields keep the existing statements, and the class is never changed. For the field tables, property IDs and examples, call embeddable-describe-entity-type first.",
 	inputSchema,
 	annotations: {
 		title: 'Add semantic entity',
@@ -220,6 +228,9 @@ export const embeddableAddSemanticEntity: Tool<typeof inputSchema> = {
 		if (args.confirmDuplicate === true) {
 			params.confirmDuplicate = '1';
 		}
+		if (args.collisionAction !== undefined) {
+			params.collisionAction = args.collisionAction;
+		}
 		if (args.comment !== undefined && args.comment !== '') {
 			params.summary = args.comment;
 		}
@@ -237,6 +248,11 @@ export const embeddableAddSemanticEntity: Tool<typeof inputSchema> = {
 				duplicateOf?: string;
 				duplicateLabel?: string;
 				match?: string;
+				collision?: boolean | string;
+				collisionOf?: string;
+				collisionLabel?: string;
+				currentSitelink?: string | null;
+				targetTitle?: string | null;
 			};
 		};
 
@@ -248,6 +264,10 @@ export const embeddableAddSemanticEntity: Tool<typeof inputSchema> = {
 			const duplicate = duplicateHitOf(semantic);
 			if (duplicate !== undefined) {
 				return duplicateHitResult(ctx, duplicate);
+			}
+			const collision = collisionHitOf(semantic);
+			if (collision !== undefined) {
+				return collisionHitResult(ctx, collision);
 			}
 			return unresolvedWriteResult(ctx, {
 				noun: 'semantic entity',
