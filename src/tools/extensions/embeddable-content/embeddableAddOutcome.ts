@@ -71,6 +71,64 @@ export function duplicateHitResult(ctx: ToolContext, hit: DuplicateHit): CallToo
 	});
 }
 
+export interface CollisionHit {
+	collisionOf: string;
+	collisionLabel?: string;
+	currentSitelink?: string | null;
+	targetTitle?: string | null;
+}
+
+/**
+ * Reads the exact-label collision answer from an entity-less module result.
+ * The item was NOT created: collisionOf names the existing item whose label
+ * matches but whose sitelink (if any) points at a different page. The caller
+ * resolves it with collisionAction=reuse|delete|duplicate.
+ */
+export function collisionHitOf(
+	result:
+		| {
+				collision?: boolean | string;
+				collisionOf?: string;
+				collisionLabel?: string;
+				currentSitelink?: string | null;
+				targetTitle?: string | null;
+		  }
+		| undefined,
+): CollisionHit | undefined {
+	if (
+		result === undefined ||
+		!(result.collision === true || result.collision === '1') ||
+		result.collisionOf === undefined ||
+		result.collisionOf === ''
+	) {
+		return undefined;
+	}
+	return {
+		collisionOf: result.collisionOf,
+		...(result.collisionLabel !== undefined && result.collisionLabel !== ''
+			? { collisionLabel: result.collisionLabel }
+			: {}),
+		...(result.currentSitelink !== undefined ? { currentSitelink: result.currentSitelink } : {}),
+		...(result.targetTitle !== undefined ? { targetTitle: result.targetTitle } : {}),
+	};
+}
+
+/**
+ * The result an exact-label collision gets: the wiki refused the create and
+ * named the existing item. The caller must choose one of the three recovery
+ * actions before calling again.
+ */
+export function collisionHitResult(ctx: ToolContext, hit: CollisionHit): CallToolResult {
+	return ctx.format.ok({
+		notCreated: 'collision',
+		collisionOf: hit.collisionOf,
+		...(hit.collisionLabel !== undefined ? { collisionLabel: hit.collisionLabel } : {}),
+		...(hit.currentSitelink !== undefined ? { currentSitelink: hit.currentSitelink } : {}),
+		...(hit.targetTitle !== undefined ? { targetTitle: hit.targetTitle } : {}),
+		note: 'Create refused by the wiki’s exact-label collision guard — an item with this label already exists and its sitelink points elsewhere. Choose one: collisionAction=reuse (apply this record to the existing item and move its sitelink to the new page), collisionAction=delete (delete the existing item, then create a new one; needs the delete right), or collisionAction=duplicate (create a new item with the next free " (2)", " (3)", … label suffix).',
+	});
+}
+
 export interface UnresolvedWriteOptions {
 	/** What the call asked to create, for the message: 'citation source', 'semantic entity', 'content item'. */
 	noun: string;

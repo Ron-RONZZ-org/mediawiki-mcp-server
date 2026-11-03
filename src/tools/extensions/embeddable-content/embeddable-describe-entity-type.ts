@@ -54,6 +54,7 @@ interface SpecialContentFieldContract {
 		payloadProperty?: { id: string; datatype: string };
 		fields?: string[];
 		requiredOnCreate?: string[];
+		requiredAnyOf?: string[][];
 	}[];
 	example: Record<string, string>;
 	propertyIds: {
@@ -90,6 +91,7 @@ async function fetchSpecialContentFields(
 				payloadPropertyId?: string;
 				fields?: string[];
 				requiredOnCreate?: string[];
+				requiredAnyOf?: string[][];
 			}[];
 			propertyIds?: SpecialContentFieldContract['propertyIds'];
 		};
@@ -112,6 +114,9 @@ async function fetchSpecialContentFields(
 				: {}),
 			fields: k.fields ?? [],
 			requiredOnCreate: k.requiredOnCreate ?? [],
+			...(k.requiredAnyOf !== undefined && k.requiredAnyOf.length > 0
+				? { requiredAnyOf: k.requiredAnyOf }
+				: {}),
 		})),
 		example: {
 			kind: 'quotation',

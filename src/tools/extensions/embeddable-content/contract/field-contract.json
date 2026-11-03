@@ -1,5 +1,5 @@
 {
-    "version": 1,
+    "version": 2,
     "generator": "EmbeddableContent maintenance/emitFieldContract.php",
     "flows": {
         "special-content": {
@@ -18,8 +18,13 @@
                     ],
                     "requiredOnCreate": [
                         "label",
-                        "content",
-                        "attributedTo"
+                        "content"
+                    ],
+                    "requiredAnyOf": [
+                        [
+                            "attributedTo",
+                            "source"
+                        ]
                     ]
                 },
                 "math": {
