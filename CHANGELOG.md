@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ### Added
 
+- `embeddable-authority-search` — read-only search of the wiki's AddSource/AddPerson authority cascade (Wikidata, OpenAlex, Crossref, Open Library, ORCID, dblp, YouTube) for works, people, collectives and software. `resolveLocal` returns publisher/journal/author/place candidates from the wiki (exact-first, with `exact=false` for a fuzzy suggestion), and `suggestedAddFields` feeds the add tools. `mode=harvest` expands a Wikidata Q-id (including a work's authors). It never writes.
+- `embeddable-add-citation-source`'s class enum is guarded by a runtime test that compares `SOURCE_CLASS_KEYS` to the pinned contract; `npm run check:live-contract` compares the pinned contract against a live wiki's `action=*-fields` endpoints, so a wiki-side class/field addition fails before a model sees a class the add tool cannot accept.
 - `render-svg` rasterises SVG source to a PNG server-side and returns it as an image block, without reading or writing a wiki. It is the inspection counterpart of SVG generation: a caller can check a figure it is about to present or upload, and see the rendered dimensions and declared aspect ratio. Input is capped at 2 MB, the rendered width at 1568 px, and the rendered height at 4096 px (a tall `viewBox` is rejected before resvg allocates the bitmap).
 - `get-file-content` now exposes `format=auto|image|source|both`. `auto` (the default) returns a viewable image for raster images and SVG and extracted text for text-like files and PDFs; `image` renders SVG server-side to PNG; `source` returns SVG XML, decoded text, or PDF text; `both` returns every available form. `get-file-info` now returns `contentFormats` so a caller can see which forms a file supports before fetching. The pre-existing `get-file`/`get-file-data` names remain as deprecated aliases for existing clients.
 - SVG rasterisation uses `@resvg/resvg-js`; PDF text extraction uses `unpdf` (pure JS). The Docker image installs DejaVu fonts so SVG text survives rasterisation.
@@ -28,6 +30,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ### Changed
 
+- The published `embeddable-add-citation-source` class enum now includes `transcript` (29 classes). The pinned contract and the live wiki already carried it; the generated `SOURCE_CLASS_KEYS` in the deployed image was one class behind, while `embeddable-describe-entity-type` fetched the live 29 — so the model could see a class the add tool rejected.
 - Merged upstream v0.20.0. `update-page` now takes `operation` (including `find-replace` and the unread-content guard), `get-page` reports numbered section outlines and `latestRevisionId` on any wikitext read, and `mode` is a deprecated alias. The fork's section-heading guard is preserved on top of upstream's subsection guard.
 - `get-file` and `get-file-data` are deprecated in favour of `get-file-info` and `get-file-content`. The aliases keep their old `image`/`text` interface; new calls should use `format=image` or `format=source` on `get-file-content`. The aliases will be removed in a future major release.
 - `get-file-content` errors for an unsupported explicit form name the supported forms instead of failing generically.

@@ -132,6 +132,7 @@ The Add\* forms of the EmbeddableContent extension expose typed entity creation 
 | `embeddable-add-semantic-entity` | Create or update a person, software, collective, fictional-character or other-class item through the wiki's own service (`action=addsemanticentity`), incl. the classic `Person:`/`Collective:`/`FOSS:` page + sitelink and the fictional-character `alias` field. A create the duplication guard flags returns the existing item it collides with (`confirmDuplicate` forces the create); a lost response is verified by label. Requires the `edit` right. |
 | `embeddable-get-embed-content` | Render an EmbeddableContent item through the embed API (the Special:Embed renderer). |
 | `embeddable-describe-entity-type` | Return the field tables and resolved property IDs behind the add tools, plus the image-facts vocabulary and preseeded license label => Q-id map (served by the wiki's `action=*-fields` endpoints). |
+| `embeddable-authority-search` | Read-only search of the wiki's AddSource/AddPerson authority cascade (Wikidata, OpenAlex, Crossref, Open Library, ORCID, dblp, YouTube) for works, people, collectives and software. `resolveLocal` adds publisher/journal/author candidates; `suggestedAddFields` feeds the add tools. Never writes. |
 
 **[WikibaseCitation](https://www.mediawiki.org/wiki/Extension:WikibaseCitation) (custom extension)**
 
