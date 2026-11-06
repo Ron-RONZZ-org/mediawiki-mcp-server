@@ -20,7 +20,7 @@ const inputSchema = {
 export const uploadFile: Tool<typeof inputSchema> = {
 	name: 'upload-file',
 	description:
-		"Uploads a file from the local disk into the wiki's File namespace and returns the resulting file title and URL. The upload appears in the wiki's upload log. The operator restricts which directories are readable; filepath must be an absolute path inside a configured upload directory, or the call fails before contacting the wiki. Fails if a file with the target title already exists (the wiki does not silently overwrite existing files). Optional license, author, licenseInfo, sourceUrl and description attach the semantic image facts on wikis running the EmbeddableContent image itemization; on other wikis the upload succeeds with a warning and no item. To upload directly from a remote web address instead of a local path, use upload-file-from-url. To replace an existing file with a new revision, use update-file.",
+		"Uploads a file from the local disk into the wiki's File namespace and returns the resulting file title and URL. The upload appears in the wiki's upload log. The operator restricts which directories are readable; filepath must be an absolute path inside a configured upload directory, or the call fails before contacting the wiki. Fails if a file with the target title already exists (the wiki does not silently overwrite existing files). Optional license, author (free text or authorEntity as a Q-id), licenseInfo, source (sourceEntity as a Q-id or sourceText), sourceUrl and description attach the semantic image facts on wikis running the EmbeddableContent image itemization; on other wikis the upload succeeds with a warning and no item. To upload directly from a remote web address instead of a local path, use upload-file-from-url. To replace an existing file with a new revision, use update-file.",
 	inputSchema,
 	annotations: {
 		title: 'Upload file',
@@ -33,7 +33,20 @@ export const uploadFile: Tool<typeof inputSchema> = {
 	target: (a) => a.title,
 
 	async handle(
-		{ filepath, title, text, comment, description, license, author, licenseInfo, sourceUrl },
+		{
+			filepath,
+			title,
+			text,
+			comment,
+			description,
+			license,
+			author,
+			authorEntity,
+			licenseInfo,
+			sourceEntity,
+			sourceText,
+			sourceUrl,
+		},
 		ctx: ToolContext,
 	): Promise<CallToolResult> {
 		let resolvedPath: string;
@@ -61,7 +74,16 @@ export const uploadFile: Tool<typeof inputSchema> = {
 		const data = await ctx.edit.submitUpload(mwn, resolvedPath, title, text, params);
 
 		const payload = await uploadedPayload(ctx, data, title);
-		const facts: ImageFacts = { description, license, author, licenseInfo, sourceUrl };
+		const facts: ImageFacts = {
+			description,
+			license,
+			author,
+			authorEntity,
+			licenseInfo,
+			sourceEntity,
+			sourceText,
+			sourceUrl,
+		};
 		const extra = await attachImageFacts(ctx, mwn, `File:${payload.filename}`, facts);
 		return ctx.format.ok({ ...payload, ...extra });
 	},

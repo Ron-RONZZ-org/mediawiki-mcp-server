@@ -37,7 +37,7 @@ const inputSchema = {
 export const updateFile: Tool<typeof inputSchema> = {
 	name: 'update-file',
 	description:
-		"Uploads a new revision of an existing file from the local disk, preserving prior revisions in the file history, and returns the file title and URL. The upload appears in the wiki's upload log. Replaces the file content (bytes) only; for editing the wikitext on a file's description page, use update-page. The operator restricts which directories are readable; filepath must be an absolute path inside a configured upload directory, or the call fails before contacting the wiki. Optional license, author, licenseInfo, sourceUrl and description replace those image-fact statements on the sitelinked item (mode=update; a blank field keeps the current value), and clear removes the named fields. Set factsOnly=true to update only the facts on the existing page without uploading bytes (filepath is then optional and ignored). Fails if no file exists at the target title; for the initial upload, use upload-file. To upload a new revision from a remote web address instead of a local path, use update-file-from-url.",
+		"Uploads a new revision of an existing file from the local disk, preserving prior revisions in the file history, and returns the file title and URL. The upload appears in the wiki's upload log. Replaces the file content (bytes) only; for editing the wikitext on a file's description page, use update-page. The operator restricts which directories are readable; filepath must be an absolute path inside a configured upload directory, or the call fails before contacting the wiki. Optional license, author (free text or authorEntity as a Q-id), licenseInfo, source (sourceEntity as a Q-id or sourceText), sourceUrl and description replace those image-fact statements on the sitelinked item (mode=update; a blank field keeps the current value), and clear removes the named fields. Set factsOnly=true to update only the facts on the existing page without uploading bytes (filepath is then optional and ignored). Fails if no file exists at the target title; for the initial upload, use upload-file. To upload a new revision from a remote web address instead of a local path, use update-file-from-url.",
 	inputSchema,
 	annotations: {
 		title: 'Update file',
@@ -58,7 +58,10 @@ export const updateFile: Tool<typeof inputSchema> = {
 			description,
 			license,
 			author,
+			authorEntity,
 			licenseInfo,
+			sourceEntity,
+			sourceText,
 			sourceUrl,
 			clear,
 		},
@@ -78,7 +81,16 @@ export const updateFile: Tool<typeof inputSchema> = {
 				throw error;
 			}
 		};
-		const facts: ImageFacts = { description, license, author, licenseInfo, sourceUrl };
+		const facts: ImageFacts = {
+			description,
+			license,
+			author,
+			authorEntity,
+			licenseInfo,
+			sourceEntity,
+			sourceText,
+			sourceUrl,
+		};
 
 		if (factsOnly) {
 			const notFound = await ensureFileExists();

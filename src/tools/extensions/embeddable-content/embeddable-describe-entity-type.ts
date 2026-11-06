@@ -26,7 +26,11 @@ interface ImageFactsFieldContract {
 	instanceOf?: string;
 	imageClasses?: Record<string, string>;
 	imageProperties?: Record<string, string>;
-	provenance?: { sourceUrl?: string | null };
+	provenance?: {
+		attributedTo?: string | null;
+		source?: string | null;
+		sourceUrl?: string | null;
+	};
 	/** label => item id (the wiki's preseeded license vocabulary) */
 	licenses?: Record<string, string>;
 }

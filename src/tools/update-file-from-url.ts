@@ -23,7 +23,7 @@ const inputSchema = {
 export const updateFileFromUrl: Tool<typeof inputSchema> = {
 	name: 'update-file-from-url',
 	description:
-		"Fetches a file from a remote web URL and uploads it as a new revision of an existing file, preserving prior revisions in the file history, and returns the file title and URL. The upload appears in the wiki's upload log. Replaces the file content (bytes) only; for editing the wikitext on a file's description page, use update-page. Optional license, author, licenseInfo, sourceUrl and description replace those image-fact statements on the sitelinked item (mode=update; a blank field keeps the current value), and clear removes the named fields. Works whether or not the wiki has upload-by-URL enabled: the server retrieves the file and uploads it directly, falling back to wiki-side fetching only when it cannot reach the URL itself. Fails if no file exists at the target title; for the initial upload, use upload-file-from-url.",
+		"Fetches a file from a remote web URL and uploads it as a new revision of an existing file, preserving prior revisions in the file history, and returns the file title and URL. The upload appears in the wiki's upload log. Replaces the file content (bytes) only; for editing the wikitext on a file's description page, use update-page. Optional license, author (free text or authorEntity as a Q-id), licenseInfo, source (sourceEntity as a Q-id or sourceText), sourceUrl and description replace those image-fact statements on the sitelinked item (mode=update; a blank field keeps the current value), and clear removes the named fields. Works whether or not the wiki has upload-by-URL enabled: the server retrieves the file and uploads it directly, falling back to wiki-side fetching only when it cannot reach the URL itself. Fails if no file exists at the target title; for the initial upload, use upload-file-from-url.",
 	inputSchema,
 	annotations: {
 		title: 'Update file from URL',
@@ -36,7 +36,20 @@ export const updateFileFromUrl: Tool<typeof inputSchema> = {
 	target: (a) => a.title,
 
 	async handle(
-		{ url, title, comment, description, license, author, licenseInfo, sourceUrl, clear },
+		{
+			url,
+			title,
+			comment,
+			description,
+			license,
+			author,
+			authorEntity,
+			licenseInfo,
+			sourceEntity,
+			sourceText,
+			sourceUrl,
+			clear,
+		},
 		ctx: ToolContext,
 	): Promise<CallToolResult> {
 		const mwn = await ctx.mwn();
@@ -51,7 +64,16 @@ export const updateFileFromUrl: Tool<typeof inputSchema> = {
 			throw error;
 		}
 
-		const facts: ImageFacts = { description, license, author, licenseInfo, sourceUrl };
+		const facts: ImageFacts = {
+			description,
+			license,
+			author,
+			authorEntity,
+			licenseInfo,
+			sourceEntity,
+			sourceText,
+			sourceUrl,
+		};
 		return uploadFromUrl(
 			ctx,
 			mwn,

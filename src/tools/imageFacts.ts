@@ -30,11 +30,30 @@ export const imageFactsSchema = {
 		.max(250)
 		.optional()
 		.describe('Image author, free text (the image author statement).'),
+	authorEntity: z
+		.string()
+		.regex(/^Q[1-9]\d*$/)
+		.optional()
+		.describe(
+			'Author as an item ID (Q<n>) — written as the `attributed to` statement, the same entity-author model as the AddSource authors field. When omitted and a sourceEntity is given, the source item’s authors are inherited.',
+		),
 	licenseInfo: z
 		.string()
 		.max(250)
 		.optional()
 		.describe('Additional license information, free text (attribution, terms, credits).'),
+	sourceEntity: z
+		.string()
+		.regex(/^Q[1-9]\d*$/)
+		.optional()
+		.describe(
+			'Source as an item ID (Q<n>), e.g. the Source: work the image comes from — written as the `source` statement.',
+		),
+	sourceText: z
+		.string()
+		.max(500)
+		.optional()
+		.describe('Source as free text (the image source statement) — use instead of sourceEntity.'),
 	sourceUrl: z
 		.string()
 		.url()
@@ -44,12 +63,29 @@ export const imageFactsSchema = {
 		),
 } as const;
 
-export type ImageFactsClearField = 'license' | 'author' | 'licenseInfo' | 'sourceUrl';
+export type ImageFactsClearField =
+	| 'license'
+	| 'author'
+	| 'authorEntity'
+	| 'licenseInfo'
+	| 'sourceEntity'
+	| 'sourceText'
+	| 'sourceUrl';
 
 /** Explicit clear list for the update tools (mode=update only). */
 export const imageFactsClearSchema = {
 	clear: z
-		.array(z.enum(['license', 'author', 'licenseInfo', 'sourceUrl']))
+		.array(
+			z.enum([
+				'license',
+				'author',
+				'authorEntity',
+				'licenseInfo',
+				'sourceEntity',
+				'sourceText',
+				'sourceUrl',
+			]),
+		)
 		.optional()
 		.describe(
 			'Fact fields to remove from the image item (mode=update only). A field cannot be both cleared and given a value.',
@@ -60,7 +96,10 @@ export interface ImageFacts {
 	description?: string;
 	license?: string;
 	author?: string;
+	authorEntity?: string;
 	licenseInfo?: string;
+	sourceEntity?: string;
+	sourceText?: string;
 	sourceUrl?: string;
 }
 
@@ -131,7 +170,10 @@ export async function submitImageFacts(
 			...(facts.description?.trim() ? { description: facts.description.trim() } : {}),
 			...(facts.license?.trim() ? { license: facts.license.trim() } : {}),
 			...(facts.author?.trim() ? { author: facts.author.trim() } : {}),
+			...(facts.authorEntity?.trim() ? { authorEntity: facts.authorEntity.trim() } : {}),
 			...(facts.licenseInfo?.trim() ? { licenseInfo: facts.licenseInfo.trim() } : {}),
+			...(facts.sourceEntity?.trim() ? { sourceEntity: facts.sourceEntity.trim() } : {}),
+			...(facts.sourceText?.trim() ? { sourceText: facts.sourceText.trim() } : {}),
 			...(facts.sourceUrl?.trim() ? { sourceUrl: facts.sourceUrl.trim() } : {}),
 			...(options.mode !== undefined ? { mode: options.mode } : {}),
 			...(options.clear !== undefined && options.clear.length > 0

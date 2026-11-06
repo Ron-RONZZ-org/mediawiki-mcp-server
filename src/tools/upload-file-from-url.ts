@@ -18,7 +18,7 @@ const inputSchema = {
 export const uploadFileFromUrl: Tool<typeof inputSchema> = {
 	name: 'upload-file-from-url',
 	description:
-		"Fetches a file from a remote web URL and uploads it into the wiki's File namespace, returning the resulting file title and URL. The upload appears in the wiki's upload log. Works whether or not the wiki has upload-by-URL enabled: the server retrieves the file and uploads it directly, falling back to wiki-side fetching only when it cannot reach the URL itself. Fails if a file with the target title already exists. Optional license, author, licenseInfo, sourceUrl and description attach the semantic image facts on wikis running the EmbeddableContent image itemization; on other wikis the upload succeeds with a warning and no item. To replace an existing file with a new revision, use update-file-from-url.",
+		"Fetches a file from a remote web URL and uploads it into the wiki's File namespace, returning the resulting file title and URL. The upload appears in the wiki's upload log. Works whether or not the wiki has upload-by-URL enabled: the server retrieves the file and uploads it directly, falling back to wiki-side fetching only when it cannot reach the URL itself. Fails if a file with the target title already exists. Optional license, author (free text or authorEntity as a Q-id), licenseInfo, source (sourceEntity as a Q-id or sourceText), sourceUrl and description attach the semantic image facts on wikis running the EmbeddableContent image itemization; on other wikis the upload succeeds with a warning and no item. To replace an existing file with a new revision, use update-file-from-url.",
 	inputSchema,
 	annotations: {
 		title: 'Upload file from URL',
@@ -31,7 +31,20 @@ export const uploadFileFromUrl: Tool<typeof inputSchema> = {
 	target: (a) => a.title,
 
 	async handle(
-		{ url, title, text, comment, description, license, author, licenseInfo, sourceUrl },
+		{
+			url,
+			title,
+			text,
+			comment,
+			description,
+			license,
+			author,
+			authorEntity,
+			licenseInfo,
+			sourceEntity,
+			sourceText,
+			sourceUrl,
+		},
 		ctx: ToolContext,
 	): Promise<CallToolResult> {
 		const mwn = await ctx.mwn();
@@ -43,7 +56,16 @@ export const uploadFileFromUrl: Tool<typeof inputSchema> = {
 			);
 		}
 
-		const facts: ImageFacts = { description, license, author, licenseInfo, sourceUrl };
+		const facts: ImageFacts = {
+			description,
+			license,
+			author,
+			authorEntity,
+			licenseInfo,
+			sourceEntity,
+			sourceText,
+			sourceUrl,
+		};
 		return uploadFromUrl(
 			ctx,
 			mwn,
