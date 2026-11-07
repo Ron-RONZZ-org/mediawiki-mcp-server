@@ -65,7 +65,7 @@ describe('extensionPacks', () => {
 		expect(embeddable?.extensionNames).toEqual(['EmbeddableContent']);
 	});
 
-	it('exposes the six EmbeddableContent tools', () => {
+	it('exposes the seven EmbeddableContent tools', () => {
 		const embeddable = extensionPacks.find((p) => p.id === 'embeddable');
 		expect(embeddable?.tools.map((t) => t.name)).toEqual([
 			'embeddable-add-special-content',
@@ -74,6 +74,7 @@ describe('extensionPacks', () => {
 			'embeddable-get-embed-content',
 			'embeddable-describe-entity-type',
 			'embeddable-resolve-authors',
+			'embeddable-authority-search',
 		]);
 	});
 

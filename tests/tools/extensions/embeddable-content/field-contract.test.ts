@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
 import {
 	SEMANTIC_ENTITY_FIELD_NAMES,
+	SOURCE_CLASS_KEYS,
 	SOURCE_FIELD_NAMES,
 	SPECIAL_CONTENT_FIELD_NAMES,
 } from '../../../../src/tools/extensions/embeddable-content/generated/fieldContract.ts';
@@ -84,6 +85,15 @@ describe('embeddable field contract', () => {
 
 	it('generates the citation-source tuple from the contract', () => {
 		expect([...SOURCE_FIELD_NAMES]).toEqual(contractUnion('citation-source'));
+	});
+
+	it('generates the citation-source class keys from the contract', () => {
+		// The add tool's classKey enum is the runtime gate: a class the wiki
+		// publishes but the generated tuple omits is rejected before the
+		// handler runs. This caught the deployed 28-of-29 drift (transcript
+		// was in the contract and the discovery output, but not in the enum).
+		const classes = contract.flows['citation-source'].classes ?? {};
+		expect([...SOURCE_CLASS_KEYS]).toEqual(Object.keys(classes));
 	});
 
 	it('generates the semantic-entity tuple from the contract', () => {
