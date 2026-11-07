@@ -130,6 +130,7 @@ export const SEMANTIC_ENTITY_FIELD_NAMES = [
 	'wikidataId',
 	'openalexAuthorId',
 	'officialWebsite',
+	'affiliatedWith',
 	'label',
 	'developer',
 	'license',

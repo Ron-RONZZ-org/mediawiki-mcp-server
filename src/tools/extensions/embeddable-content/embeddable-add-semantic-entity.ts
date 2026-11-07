@@ -83,6 +83,12 @@ const FIELD_VALIDATORS = {
 		.string()
 		.optional()
 		.describe('The official website as an http(s) URL (person, software, collective).'),
+	affiliatedWith: z
+		.string()
+		.optional()
+		.describe(
+			'Comma/semicolon-separated item IDs of the collectives/organizations this person is affiliated with (person only). One statement per id.',
+		),
 	developer: z
 		.string()
 		.optional()

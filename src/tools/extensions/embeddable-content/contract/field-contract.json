@@ -634,7 +634,8 @@
                         "isni",
                         "wikidataId",
                         "openalexAuthorId",
-                        "officialWebsite"
+                        "officialWebsite",
+                        "affiliatedWith"
                     ],
                     "requiredOnCreate": [
                         "givenName",
