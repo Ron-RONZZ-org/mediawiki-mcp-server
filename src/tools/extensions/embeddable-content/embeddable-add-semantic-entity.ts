@@ -83,6 +83,12 @@ const FIELD_VALIDATORS = {
 		.string()
 		.optional()
 		.describe('The official website as an http(s) URL (person, software, collective).'),
+	affiliatedWith: z
+		.string()
+		.optional()
+		.describe(
+			'Comma/semicolon-separated item IDs of the collectives/organizations this person is affiliated with (person only). One statement per id.',
+		),
 	developer: z
 		.string()
 		.optional()
@@ -136,6 +142,12 @@ const FIELD_VALIDATORS = {
 		.describe(
 			'Comma/semicolon-separated alternative names (fictional-character), written as item aliases. A blank field keeps the stored aliases on update.',
 		),
+	members: z
+		.string()
+		.optional()
+		.describe(
+			'Comma/semicolon-separated Person item IDs; the individual members of a group-of-humans collective. A blank/omitted field keeps the existing members on update; an empty string removes them. A group with members is expanded to those Persons when used as a Source author.',
+		),
 	presentInWork: z
 		.string()
 		.optional()
@@ -158,6 +170,38 @@ const inputSchema = {
 			'The kind of semantic entity: person, software (a free/open-source software item), collective (an organization or group), fictional-character, or other (any class — the catch-all that takes instanceOf).',
 		),
 	...FIELD_VALIDATORS,
+	memberNames: z
+		.string()
+		.max(2000)
+		.optional()
+		.describe(
+			'Paste the group member list as one string (kind=collective + group of humans). Without memberDecisions the call returns the batch resolution and writes nothing; with decisions it creates/reuses/updates the Persons and the group in one write.',
+		),
+	memberNameFormat: z
+		.enum(['auto', 'comma', 'semicolon', 'single'])
+		.optional()
+		.describe('How to parse memberNames. Default auto.'),
+	memberDecisions: z
+		.array(
+			z.object({
+				index: z.number().int().min(0),
+				action: z.enum(['reuse', 'create', 'update', 'skip']),
+				qid: z.string().regex(ITEM_ID, 'An item ID, such as Q42').optional(),
+				person: z.record(z.string(), z.unknown()).optional(),
+			}),
+		)
+		.optional()
+		.describe(
+			'Explicit per-name member decisions (same shape as authorDecisions). Without them the call returns memberConfirmationRequired and writes nothing.',
+		),
+	memberDetails: z
+		.record(z.string(), z.record(z.string(), z.unknown()))
+		.optional()
+		.describe('Member Person fields keyed by index or original name; merged into memberDecisions.'),
+	memberUpdateExisting: z
+		.boolean()
+		.optional()
+		.describe('Also update the supplied details on reused existing member Persons.'),
 	qid: z
 		.string()
 		.regex(ITEM_ID, 'An item ID, such as Q42')
@@ -183,7 +227,7 @@ const inputSchema = {
 export const embeddableAddSemanticEntity: Tool<typeof inputSchema> = {
 	name: 'embeddable-add-semantic-entity',
 	description:
-		"Creates or updates a person, software (FOSS), collective, fictional-character or other-class item on a wiki with the EmbeddableContent extension, mirroring the Special:AddPerson / AddSoftware / AddCollective / AddFictionalCharacter forms, and returns the item ID and latest revision. Requires the edit right.\n\nThe item is created by the wiki's own semantic-entity service (action=addsemanticentity): each kind carries its form's fields as statements — person given/family name as the label plus birth/death dates and places, ORCID/VIAF/ISNI/Wikidata/OpenAlex author IDs and official website; software label plus developer/license/operating-system/user-interface/has-use item IDs, programming language, website/repository/documentation URLs; collective label plus the collectiveClass (default organization), parent organization and official website; fictional-character given/family name as the label \"{given} {family} (fictional character)\" with present-in-work items and an auto-generated description; kind=other is the catch-all with instanceOf. The classic Person:/Collective:/FOSS: page + sitelink are created like the forms. Portraits and logos (image uploads) are not written by this tool, and kind=other takes no raw statements — use wikibase-edit-entity for raw statement JSON. A create that matches an existing item (the same authority id or URL, or a highly similar class-filtered label) is refused by the wiki's duplication guard, which returns the existing item instead of creating — update that item instead, or set confirmDuplicate to force the create. A create whose label exactly matches an item whose sitelink points at another page returns a collision instead: choose collisionAction=reuse|delete|duplicate. When the wiki's response is lost and no item comes back, the tool checks whether an item with the expected label exists and reports the outcome before you retry.\n\nResolve entity IDs with wikibase-search-entities first; a programming language accepts a label and is resolved. Set qid to update an existing item instead: statements on the fields you provide are replaced, blank fields keep the existing statements, and the class is never changed. For the field tables, property IDs and examples, call embeddable-describe-entity-type first.",
+		"Creates or updates a person, software (FOSS), collective, fictional-character or other-class item on a wiki with the EmbeddableContent extension, mirroring the Special:AddPerson / AddSoftware / AddCollective / AddFictionalCharacter forms, and returns the item ID and latest revision. Requires the edit right.\n\nThe item is created by the wiki's own semantic-entity service (action=addsemanticentity): each kind carries its form's fields as statements — person given/family name as the label plus birth/death dates and places, ORCID/VIAF/ISNI/Wikidata/OpenAlex author IDs and official website; software label plus developer/license/operating-system/user-interface/has-use item IDs, programming language, website/repository/documentation URLs; collective label plus the collectiveClass (default organization), parent organization, group-of-humans members and official website (a group-of-humans label may be omitted and is auto-generated from the members, with et al. on overflow); fictional-character given/family name as the label \"{given} {family} (fictional character)\" with present-in-work items and an auto-generated description; kind=other is the catch-all with instanceOf. The classic Person:/Collective:/FOSS: page + sitelink are created like the forms. Portraits and logos (image uploads) are not written by this tool, and kind=other takes no raw statements — use wikibase-edit-entity for raw statement JSON. A create that matches an existing item (the same authority id or URL, or a highly similar class-filtered label) is refused by the wiki's duplication guard, which returns the existing item instead of creating — update that item instead, or set confirmDuplicate to force the create. A create whose label exactly matches an item whose sitelink points at another page returns a collision instead: choose collisionAction=reuse|delete|duplicate. When the wiki's response is lost and no item comes back, the tool checks whether an item with the expected label exists and reports the outcome before you retry.\n\nGroup-of-humans members: pass memberNames without memberDecisions to get the batch resolution (memberConfirmationRequired=1, nothing written), then call again with memberDecisions (and optional memberDetails) to create/reuse/update the Persons and the group in one write. The final members can also be supplied directly as members Q-ids. A group with members is expanded to those Persons when used as a Source author.\n\nResolve entity IDs with wikibase-search-entities first; a programming language accepts a label and is resolved. Set qid to update an existing item instead: statements on the fields you provide are replaced, blank fields keep the existing statements, and the class is never changed. For the field tables, property IDs and examples, call embeddable-describe-entity-type first.",
 	inputSchema,
 	annotations: {
 		title: 'Add semantic entity',
@@ -225,6 +269,21 @@ export const embeddableAddSemanticEntity: Tool<typeof inputSchema> = {
 		if (args.qid !== undefined) {
 			params.qid = args.qid.toUpperCase();
 		}
+		if (args.memberNames !== undefined && args.memberNames !== '') {
+			params.memberNames = args.memberNames;
+		}
+		if (args.memberNameFormat !== undefined) {
+			params.memberNameFormat = args.memberNameFormat;
+		}
+		if (args.memberDecisions !== undefined) {
+			params.memberDecisions = JSON.stringify(args.memberDecisions);
+		}
+		if (args.memberDetails !== undefined) {
+			params.memberDetails = JSON.stringify(args.memberDetails);
+		}
+		if (args.memberUpdateExisting === true) {
+			params.memberUpdateExisting = '1';
+		}
 		if (args.confirmDuplicate === true) {
 			params.confirmDuplicate = '1';
 		}
@@ -253,11 +312,31 @@ export const embeddableAddSemanticEntity: Tool<typeof inputSchema> = {
 				collisionLabel?: string;
 				currentSitelink?: string | null;
 				targetTitle?: string | null;
+				memberConfirmationRequired?: boolean | string;
+				memberResolution?: unknown;
+				memberWarnings?: unknown[];
+				members?: {
+					ids?: string[];
+					created?: string[];
+					reused?: string[];
+					updated?: string[];
+					warnings?: string[];
+				};
 			};
 		};
 
 		const semantic = response?.semantic;
 		if (semantic?.entityId === undefined) {
+			if (
+				semantic?.memberConfirmationRequired === true ||
+				semantic?.memberConfirmationRequired === '1'
+			) {
+				return ctx.format.ok({
+					memberConfirmationRequired: true,
+					memberResolution: semantic.memberResolution,
+					memberWarnings: semantic.memberWarnings,
+				});
+			}
 			// The wiki answered without creating: a duplication-guard refusal
 			// names the existing item; anything else is a lost response whose
 			// outcome is checked before the caller is told to retry.
@@ -283,6 +362,7 @@ export const embeddableAddSemanticEntity: Tool<typeof inputSchema> = {
 			...(semantic.created === true || semantic.created === '1' ? { created: true } : {}),
 			...(semantic.updated === true || semantic.updated === '1' ? { updated: true } : {}),
 			...(typeof semantic.pageTitle === 'string' ? { pageTitle: semantic.pageTitle } : {}),
+			...(semantic.members !== undefined ? { members: semantic.members } : {}),
 		});
 	},
 };

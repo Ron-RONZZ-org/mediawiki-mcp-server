@@ -56,7 +56,27 @@ function schemaFieldKeys(schema: Record<string, unknown>, toolLevel: string[]): 
 	return Object.keys(schema).filter((key) => !toolLevel.includes(key));
 }
 
-const TOOL_LEVEL = ['kind', 'classKey', 'qid', 'confirmDuplicate', 'collisionAction', 'comment'];
+const TOOL_LEVEL = [
+	'kind',
+	'classKey',
+	'qid',
+	'confirmDuplicate',
+	'collisionAction',
+	'comment',
+	// Batch author-resolution params on embeddable-add-citation-source.
+	'authorNames',
+	'authorNameFormat',
+	'authorDecisions',
+	'authorDetails',
+	'authorUpdateExisting',
+	'allowCollectiveAuthor',
+	// Batch member-resolution params on embeddable-add-semantic-entity.
+	'memberNames',
+	'memberNameFormat',
+	'memberDecisions',
+	'memberDetails',
+	'memberUpdateExisting',
+];
 
 describe('embeddable field contract', () => {
 	it('generates the special-content tuple from the contract', () => {

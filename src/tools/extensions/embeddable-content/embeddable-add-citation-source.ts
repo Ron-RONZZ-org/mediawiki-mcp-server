@@ -64,7 +64,7 @@ const FIELD_VALIDATORS = {
 		.string()
 		.optional()
 		.describe(
-			"Comma/semicolon-separated item IDs of the authors or creators (agent-class items, e.g. Q6 person items). At least one is required when creating, except for book-excerpt, which copies the parent book's authors when left blank. Resolve names with wikibase-search-entities first.",
+			"Comma/semicolon-separated item IDs of the authors or creators (agent-class items, e.g. Q6 person items). At least one is required when creating, except for book-excerpt, which copies the parent book's authors when left blank. Prefer authorNames for a pasted author list.",
 		),
 	publisher: z
 		.string()
@@ -190,6 +190,59 @@ const inputSchema = {
 			'The kind of work, matching the Special:AddSource class picker (book, scholarly-article, website, webpage, song, film, video, youtube-channel, youtube-video, book-excerpt, and the Zotero/CSL-aligned classes: newspaper/magazine article, conference paper, report, document, thesis, manuscript, patent, legal case, legislation, bill, treaty, interview, map, presentation, dataset, text, legal provision). Child classes (webpage, youtube-video, book-excerpt, legal-provision) require their parent class item via parent.',
 		),
 	...FIELD_VALIDATORS,
+	authorNames: z
+		.string()
+		.max(2000)
+		.optional()
+		.describe(
+			'Paste the full author list as one string (the Special:AddSource "Author names" panel). The wiki parses it, resolves every name against local Person items, and returns the batch result when authorDecisions is omitted. Commas only: Given Family, Given Family. Family-first lists: Family, Given; Family, Given. Every name must be confirmed explicitly — an exact label match is never auto-accepted.',
+		),
+	authorNameFormat: z
+		.enum(['auto', 'comma', 'semicolon', 'single'])
+		.optional()
+		.describe(
+			'How to parse authorNames. Default auto (semicolons if present, else commas, else "and"/"&").',
+		),
+	authorDecisions: z
+		.array(
+			z.object({
+				index: z.number().int().min(0).describe('The zero-based authorNames row index.'),
+				action: z
+					.enum(['reuse', 'create', 'update', 'skip'])
+					.describe(
+						'reuse an existing Person (qid), create a new Person (person details), update an existing Person (qid + person details), or skip the name.',
+					),
+				qid: z.string().regex(ITEM_ID, 'An item ID, such as Q42').optional(),
+				person: z
+					.record(z.string(), z.unknown())
+					.optional()
+					.describe(
+						'Person fields for create/update: givenName, familyName, description, dateOfBirth, dateOfDeath, orcid, viafId, isni, wikidataId, openalexAuthorId, officialWebsite. On update a blank/absent field keeps the existing value.',
+					),
+			}),
+		)
+		.optional()
+		.describe(
+			'Explicit per-name decisions. When omitted, the call returns the batch resolution with authorConfirmationRequired=1 and writes NOTHING; call the tool again with decisions to create/reuse the Persons and the Source in one write.',
+		),
+	authorDetails: z
+		.record(z.string(), z.record(z.string(), z.unknown()))
+		.optional()
+		.describe(
+			'Person fields keyed by author index (as a string) or original name; merged into the matching authorDecisions entry. Useful for supplying details once without repeating them inside every decision.',
+		),
+	authorUpdateExisting: z
+		.boolean()
+		.optional()
+		.describe(
+			'When true, the person details supplied for an existing (reuse) author update that Person as well, in the same call.',
+		),
+	allowCollectiveAuthor: z
+		.boolean()
+		.optional()
+		.describe(
+			'Allow a group-of-humans author whose label is a person-name list to remain a collective author. Leave false to reject the legacy shortcut.',
+		),
 	qid: z
 		.string()
 		.regex(ITEM_ID, 'An item ID, such as Q96')
@@ -215,7 +268,7 @@ const inputSchema = {
 export const embeddableAddCitationSource: Tool<typeof inputSchema> = {
 	name: 'embeddable-add-citation-source',
 	description:
-		"Creates or updates a citable work item on a wiki with the EmbeddableContent extension, mirroring the Special:AddSource flow, and returns the item ID and latest revision. Requires the edit right. The item is classified under the classKey's class and carries the class's fields as statements — authors as attributed to statements (at least one, as item IDs), publisher and journal as item values, year on the date property at year precision, duration as whole seconds.\n\nThe item is created by the wiki's own AddSource service (action=addsource), so validation, statement building and the classic Source: page + sitelink are identical to the form; a class that does not expose a field rejects it, and the child classes require a parent of the right class. A book-excerpt with blank year or authors copies them from the parent book. A create that matches an existing item (the same authority id or URL, or a highly similar class-filtered label) is refused by the wiki's duplication guard, which returns the existing item instead of creating — cite or update that item, or set confirmDuplicate to force the create. A create whose label exactly matches an item whose sitelink points at another page returns a collision instead: choose collisionAction=reuse|delete|duplicate. When the wiki's response is lost and no item comes back, the tool checks whether an item with the submitted title exists and reports the outcome before you retry.\n\nSet qid to update an existing item instead: statements on the fields you provide are replaced, blank fields keep the existing statements, and the class is never changed. For the field table, property IDs and a ready-to-submit example, call embeddable-describe-entity-type first. Cite the created item on pages with {{#cite:Qxx}} (see the wiki's Help:Contributing/citations).",
+		"Creates or updates a citable work item on a wiki with the EmbeddableContent extension, mirroring the Special:AddSource flow, and returns the item ID and latest revision. Requires the edit right. The item is classified under the classKey's class and carries the class's fields as statements — authors as attributed to statements (at least one, as item IDs), publisher and journal as item values, year on the date property at year precision, duration as whole seconds.\n\nThe item is created by the wiki's own AddSource service (action=addsource), so validation, statement building and the classic Source: page + sitelink are identical to the form; a class that does not expose a field rejects it, and the child classes require a parent of the right class. A book-excerpt with blank year or authors copies them from the parent book. A create that matches an existing item (the same authority id or URL, or a highly similar class-filtered label) is refused by the wiki's duplication guard, which returns the existing item instead of creating — cite or update that item, or set confirmDuplicate to force the create. A create whose label exactly matches an item whose sitelink points at another page returns a collision instead: choose collisionAction=reuse|delete|duplicate. When the wiki's response is lost and no item comes back, the tool checks whether an item with the submitted title exists and reports the outcome before you retry.\n\nAuthor names: pass authorNames (a pasted author list) without authorDecisions and the tool returns the batch resolution (parsed names + every local Person candidate) with authorConfirmationRequired=1 and writes NOTHING. Confirm each name and call the tool again with authorDecisions (and optional authorDetails) to create/reuse/update the Person items and the Source in one write. A match is never auto-accepted — common names such as John Smith are ambiguous. authorDetails supplies Person fields keyed by index or original name; authorUpdateExisting=true also updates the details of reused Persons. A group-of-humans author whose label is a person-name list is rejected unless allowCollectiveAuthor=true.\n\nSet qid to update an existing item instead: statements on the fields you provide are replaced, blank fields keep the existing statements, and the class is never changed. For the field table, property IDs and a ready-to-submit example, call embeddable-describe-entity-type first. Cite the created item on pages with {{#cite:Qxx}} (see the wiki's Help:Contributing/citations).",
 	inputSchema,
 	annotations: {
 		title: 'Add citation source',
@@ -250,6 +303,24 @@ export const embeddableAddCitationSource: Tool<typeof inputSchema> = {
 				params[field] = value;
 			}
 		}
+		if (args.authorNames !== undefined && args.authorNames !== '') {
+			params.authorNames = args.authorNames;
+		}
+		if (args.authorNameFormat !== undefined) {
+			params.authorNameFormat = args.authorNameFormat;
+		}
+		if (args.authorDecisions !== undefined) {
+			params.authorDecisions = JSON.stringify(args.authorDecisions);
+		}
+		if (args.authorDetails !== undefined) {
+			params.authorDetails = JSON.stringify(args.authorDetails);
+		}
+		if (args.authorUpdateExisting === true) {
+			params.authorUpdateExisting = '1';
+		}
+		if (args.allowCollectiveAuthor === true) {
+			params.allowCollectiveAuthor = '1';
+		}
 		if (args.qid !== undefined) {
 			params.qid = args.qid.toUpperCase();
 		}
@@ -281,11 +352,34 @@ export const embeddableAddCitationSource: Tool<typeof inputSchema> = {
 				collisionLabel?: string;
 				currentSitelink?: string | null;
 				targetTitle?: string | null;
+				authorConfirmationRequired?: boolean | string;
+				authorResolution?: unknown;
+				authorWarnings?: unknown[];
+				authors?: {
+					ids?: string[];
+					created?: string[];
+					reused?: string[];
+					updated?: string[];
+					warnings?: string[];
+				};
 			};
 		};
 
 		const source = response?.source;
 		if (source?.entityId === undefined) {
+			// Author-name resolution without decisions: the wiki returns the
+			// batch result and writes nothing. The caller confirms and calls
+			// again with authorDecisions.
+			if (
+				source?.authorConfirmationRequired === true ||
+				source?.authorConfirmationRequired === '1'
+			) {
+				return ctx.format.ok({
+					authorConfirmationRequired: true,
+					authorResolution: source.authorResolution,
+					authorWarnings: source.authorWarnings,
+				});
+			}
 			// The wiki answered without creating: a duplication-guard refusal
 			// names the existing item; anything else is a lost response whose
 			// outcome is checked before the caller is told to retry.
@@ -311,6 +405,7 @@ export const embeddableAddCitationSource: Tool<typeof inputSchema> = {
 			...(source.created === true || source.created === '1' ? { created: true } : {}),
 			...(source.updated === true || source.updated === '1' ? { updated: true } : {}),
 			...(typeof source.pageTitle === 'string' ? { pageTitle: source.pageTitle } : {}),
+			...(source.authors !== undefined ? { authors: source.authors } : {}),
 		});
 	},
 };

@@ -4,6 +4,7 @@ import { embeddableAddCitationSource } from './embeddable-add-citation-source.ts
 import { embeddableAddSemanticEntity } from './embeddable-add-semantic-entity.ts';
 import { embeddableGetEmbedContent } from './embeddable-get-embed-content.ts';
 import { embeddableDescribeEntityType } from './embeddable-describe-entity-type.ts';
+import { embeddableResolveAuthors } from './embeddable-resolve-authors.ts';
 import { embeddableAuthoritySearch } from './embeddable-authority-search.ts';
 
 // `invalidentity` is shared with the WikibaseCitation API (ApiCitation returns
@@ -17,6 +18,7 @@ export const embeddableContentPack: ExtensionPack = {
 		embeddableAddSemanticEntity,
 		embeddableGetEmbedContent,
 		embeddableDescribeEntityType,
+		embeddableResolveAuthors,
 		embeddableAuthoritySearch,
 	],
 	errorCodes: {
