@@ -69,6 +69,12 @@ const TOOL_LEVEL = [
 	'authorDetails',
 	'authorUpdateExisting',
 	'allowCollectiveAuthor',
+	// Batch member-resolution params on embeddable-add-semantic-entity.
+	'memberNames',
+	'memberNameFormat',
+	'memberDecisions',
+	'memberDetails',
+	'memberUpdateExisting',
 ];
 
 describe('embeddable field contract', () => {

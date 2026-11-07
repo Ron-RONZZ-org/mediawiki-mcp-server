@@ -670,6 +670,7 @@
                         "labelLanguage",
                         "collectiveClass",
                         "parentOrganization",
+                        "members",
                         "officialWebsite",
                         "wikidataId"
                     ],

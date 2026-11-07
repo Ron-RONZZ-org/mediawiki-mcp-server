@@ -142,6 +142,7 @@ export const SEMANTIC_ENTITY_FIELD_NAMES = [
 	'documentationUrl',
 	'collectiveClass',
 	'parentOrganization',
+	'members',
 	'alias',
 	'presentInWork',
 	'instanceOf',
