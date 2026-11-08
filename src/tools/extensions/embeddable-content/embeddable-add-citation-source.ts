@@ -130,10 +130,9 @@ const FIELD_VALIDATORS = {
 		.describe('A non-direct access URL for the work (the classes that expose an access field).'),
 	parent: z
 		.string()
-		.regex(ITEM_ID, 'An item ID, such as Q42')
 		.optional()
 		.describe(
-			'The parent-class item, written as a part of statement: the website for a webpage, the channel for a youtube-video, the book for a book-excerpt, the legislation for a legal-provision. Required when creating those classes; must be an existing item of the parent class.',
+			'One or more parent-class items, comma-separated, written as part of statements: the website for a webpage, the channel for a youtube-video, the book for a book-excerpt, the legislation for a legal-provision. Required when creating those classes; each must be an existing item of the parent class.',
 		),
 	court: z
 		.string()

@@ -133,9 +133,10 @@ const FIELD_VALIDATORS = {
 		),
 	parentOrganization: z
 		.string()
-		.regex(ITEM_ID, 'An item ID, such as Q42')
 		.optional()
-		.describe('The parent organization as an item ID (collective).'),
+		.describe(
+			'One or more parent organizations this collective is a subsidiary or subdivision of, comma-separated (each an organization item).',
+		),
 	alias: z
 		.string()
 		.optional()
