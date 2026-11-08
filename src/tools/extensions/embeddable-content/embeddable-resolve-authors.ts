@@ -41,7 +41,7 @@ interface AuthorResolveResponse {
 export const embeddableResolveAuthors: Tool<typeof inputSchema> = {
 	name: 'embeddable-resolve-authors',
 	description:
-		'Parses a pasted author-name string and resolves every name against the wiki\'s Person items in ONE read-only call. Returns, per name: the parsed given/family split, flags (mononym, family-first, CJK, parenthetical, et al., …), the local Person candidates with score/authority ids, and any group-of-humans item whose label is itself a person-name list (the legacy "author list stored as a collective" pattern). Never accepts a match — every candidate must be confirmed explicitly (common names are ambiguous). Use the result to build the authorDecisions for embeddable-add-citation-source, which creates/reuses the Persons and the Source in one write.',
+		'Parses a pasted author-name string and resolves every name against the wiki\'s items in ONE read-only call. Returns, per name: the parsed given/family split, flags (mononym, family-first, CJK, parenthetical, et al., …), the local Person candidates with score/authority ids, and any group-of-humans item whose label is itself a person-name list (the legacy "author list stored as a collective" pattern). A name prefixed with ORG: (e.g. ORG:Wikimedia Foundation) is a collective row: it is resolved against the collective agent classes, not Persons. Never accepts a match — every candidate must be confirmed explicitly (common names are ambiguous). Use the result to build the authorDecisions for embeddable-add-citation-source, which creates/reuses the entities and the Source in one write.',
 	inputSchema,
 	annotations: {
 		title: 'Resolve author names',
