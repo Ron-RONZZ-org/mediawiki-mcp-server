@@ -510,13 +510,27 @@ export const embeddableAddCitationSource: Tool<typeof inputSchema> = {
 					...(accessFile.language !== undefined ? { language: accessFile.language } : {}),
 				}),
 				...(args.comment !== undefined && args.comment !== '' ? { summary: args.comment } : {}),
-			})) as { source?: { accessFile?: Record<string, unknown> } };
+			})) as {
+				source?: {
+					accessFile?: {
+						fileId?: string;
+						fileTitle?: string;
+						public?: string | boolean;
+						alreadyLinked?: string | boolean;
+					};
+				};
+			};
+			const attached = attachResponse.source?.accessFile ?? {};
 			return ctx.format.ok({
 				...result,
 				accessFile: {
 					fileTitle: uploaded.fileTitle,
 					fileUrl: uploaded.fileUrl,
-					...(attachResponse.source?.accessFile ?? {}),
+					...(attached.fileId !== undefined ? { fileId: attached.fileId } : {}),
+					// MediaWiki flags: present with '1' means true (a bare
+					// PHP boolean serialises to '').
+					public: attached.public === '1' || attached.public === true,
+					alreadyLinked: attached.alreadyLinked === '1' || attached.alreadyLinked === true,
 				},
 			});
 		} catch (error) {
