@@ -80,6 +80,7 @@ export const SOURCE_FIELD_NAMES = [
 	'isbn',
 	'accessUrl',
 	'wikidataId',
+	'accessFile',
 	'journal',
 	'volume',
 	'issue',
