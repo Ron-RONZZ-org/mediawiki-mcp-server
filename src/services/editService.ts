@@ -30,6 +30,21 @@ export interface EditService {
 	): Promise<ApiUploadResponse>;
 
 	/**
+	 * Uploads one access file through the wiki's own `action=accessupload`
+	 * (the Special:AddSource access editor's path): the destination is named
+	 * from `label`, the File page text is generated server-side, and
+	 * `internal` writes the internal-use marker + category. Returns the File:
+	 * title and URL. Requires the `upload` right.
+	 */
+	submitAccessUpload(
+		mwn: Mwn,
+		filepath: string,
+		label: string,
+		description: string,
+		internal: boolean,
+	): Promise<{ fileTitle: string; fileUrl: string }>;
+
+	/**
 	 * Reports whether the authenticated account holds the `bot` right on the
 	 * targeted wiki — i.e. whether a bot-flagged edit will actually be marked.
 	 * Resolves undefined when the rights probe fails; a probe failure never
@@ -109,6 +124,41 @@ export class EditServiceImpl implements EditService {
 		params: ApiUploadParams,
 	): Promise<ApiUploadResponse> {
 		return this.upload(mwn, { stream: data, name: filename }, title, text, params);
+	}
+
+	public async submitAccessUpload(
+		mwn: Mwn,
+		filepath: string,
+		label: string,
+		description: string,
+		internal: boolean,
+	): Promise<{ fileTitle: string; fileUrl: string }> {
+		const token = await mwn.getCsrfToken();
+		const { tags } = this;
+		const fullParams: Record<string, unknown> = {
+			action: 'accessupload',
+			mode: 'file',
+			file: fileAt(filepath),
+			label,
+			description,
+			internal: internal ? '1' : '0',
+			token,
+			formatversion: '2',
+		};
+		if (tags !== null && tags !== undefined) {
+			fullParams.tags = tags;
+		}
+		// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- action=accessupload response shape; trusted at this boundary
+		const response = (await mwn.request(fullParams as ApiParams, {
+			headers: { 'Content-Type': 'multipart/form-data' },
+		})) as { accessupload?: { fileTitle?: string; fileUrl?: string } };
+		const uploaded = response.accessupload;
+		if (!uploaded?.fileTitle) {
+			throw new Error(
+				'action=accessupload returned no fileTitle (the wiki is too old or rejected it).',
+			);
+		}
+		return { fileTitle: uploaded.fileTitle, fileUrl: uploaded.fileUrl ?? '' };
 	}
 
 	private async upload(

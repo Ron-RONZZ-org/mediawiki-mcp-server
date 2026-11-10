@@ -1,7 +1,11 @@
-import { describe, it, expect, vi } from 'vitest';
+import { afterAll, describe, it, expect, vi } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createMockMwn } from '../../../helpers/mock-mwn.ts';
 import { fakeContext } from '../../../helpers/fakeContext.ts';
 import { toolArgs } from '../../../helpers/toolArgs.ts';
+import { UploadDirsImpl } from '../../../../src/wikis/uploadDirs.ts';
 import {
 	assertStructuredData,
 	assertStructuredError,
@@ -17,6 +21,7 @@ const CREATED = {
 		latestRevisionId: 12,
 		created: true,
 		pageTitle: 'Source:The Hobbit (Book)',
+		label: 'The Hobbit (Book)',
 	},
 };
 
@@ -290,5 +295,160 @@ describe('embeddable-add-citation-source', () => {
 
 	it('is annotated as a write tool so the read-only gate covers it', () => {
 		expect(embeddableAddCitationSource.annotations.readOnlyHint).toBe(false);
+	});
+
+	describe('accessFile', () => {
+		const dir = mkdtempSync(join(tmpdir(), 'mcp-access-'));
+		const file = join(dir, 'paper.pdf');
+		writeFileSync(file, '%PDF-1.4\n%%EOF\n');
+		afterAll(() => rmSync(dir, { recursive: true, force: true }));
+
+		const ATTACHED = {
+			source: {
+				accessFile: {
+					fileId: 'Q900',
+					fileTitle: 'The-Hobbit-(Book).pdf',
+					public: false,
+					alreadyLinked: false,
+				},
+			},
+		};
+
+		function accessContext(attachResult: unknown = ATTACHED) {
+			const submit = vi.fn().mockResolvedValueOnce(CREATED).mockResolvedValueOnce(attachResult);
+			const submitAccessUpload = vi.fn().mockResolvedValue({
+				fileTitle: 'The-Hobbit-(Book).pdf',
+				fileUrl: 'https://wiki.example/File:The-Hobbit-(Book).pdf',
+			});
+			const mock = createMockMwn({ request: vi.fn(() => ({})) });
+			const ctx = fakeContext({
+				mwn: async () => mock as never,
+				uploadDirs: new UploadDirsImpl([dir]),
+				edit: { ...baseEdit, submit, submitAccessUpload },
+			});
+			return { ctx, submit, submitAccessUpload };
+		}
+
+		it('creates the source, uploads the bytes, then attaches (internal by default)', async () => {
+			const { ctx, submit, submitAccessUpload } = accessContext();
+
+			const result = await embeddableAddCitationSource.handle(
+				toolArgs(embeddableAddCitationSource, {
+					classKey: 'book',
+					title: 'The Hobbit',
+					accessFile: { filepath: file },
+				}),
+				ctx,
+			);
+
+			// The first call never carries accessFile (the file does not exist yet).
+			expect(submit.mock.calls[0][1]).not.toHaveProperty('accessFile');
+			// The wiki names the File: page from the SOURCE label.
+			expect(submitAccessUpload).toHaveBeenCalledWith(
+				expect.anything(),
+				file,
+				'The Hobbit (Book)',
+				'',
+				true,
+			);
+			const attach = submit.mock.calls[1][1];
+			expect(attach).toMatchObject({ action: 'addsource', class: 'book', qid: 'Q777' });
+			expect(JSON.parse(String(attach.accessFile))).toEqual({
+				fileTitle: 'The-Hobbit-(Book).pdf',
+				internal: true,
+			});
+			expect(assertStructuredData(result)).toMatchObject({
+				entityId: 'Q777',
+				accessFile: { fileId: 'Q900', fileTitle: 'The-Hobbit-(Book).pdf' },
+			});
+		});
+
+		it('passes a public licence through to the attach call', async () => {
+			const { ctx, submit } = accessContext({
+				source: { accessFile: { fileId: 'Q901', public: true, alreadyLinked: false } },
+			});
+
+			await embeddableAddCitationSource.handle(
+				toolArgs(embeddableAddCitationSource, {
+					classKey: 'book',
+					title: 'The Hobbit',
+					accessFile: { filepath: file, internal: false, license: 'Q320', language: 'en' },
+				}),
+				ctx,
+			);
+
+			expect(JSON.parse(String(submit.mock.calls[1][1].accessFile))).toEqual({
+				fileTitle: 'The-Hobbit-(Book).pdf',
+				internal: false,
+				license: 'Q320',
+				language: 'en',
+			});
+		});
+
+		it('rejects a public file without a licence before any write', async () => {
+			const { ctx, submit } = accessContext();
+
+			const result = await embeddableAddCitationSource.handle(
+				toolArgs(embeddableAddCitationSource, {
+					classKey: 'book',
+					title: 'The Hobbit',
+					accessFile: { filepath: file, internal: false },
+				}),
+				ctx,
+			);
+
+			assertStructuredError(result, 'invalid_input');
+			expect(submit).not.toHaveBeenCalled();
+		});
+
+		it('rejects a path outside the upload directories before any write', async () => {
+			const { ctx, submit } = accessContext();
+
+			const result = await embeddableAddCitationSource.handle(
+				toolArgs(embeddableAddCitationSource, {
+					classKey: 'book',
+					title: 'The Hobbit',
+					accessFile: { filepath: '/etc/passwd' },
+				}),
+				ctx,
+			);
+
+			assertStructuredError(result, 'invalid_input');
+			expect(submit).not.toHaveBeenCalled();
+		});
+
+		it('reports a partial result when the attach fails after the upload', async () => {
+			const submit = vi
+				.fn()
+				.mockResolvedValueOnce(CREATED)
+				.mockRejectedValueOnce(new Error('invalid_access_file'));
+			const mock = createMockMwn({ request: vi.fn(() => ({})) });
+			const ctx = fakeContext({
+				mwn: async () => mock as never,
+				uploadDirs: new UploadDirsImpl([dir]),
+				edit: {
+					...baseEdit,
+					submit,
+					submitAccessUpload: vi.fn().mockResolvedValue({
+						fileTitle: 'The-Hobbit-(Book).pdf',
+						fileUrl: 'https://wiki.example/File:The-Hobbit-(Book).pdf',
+					}),
+				},
+			});
+
+			const result = await embeddableAddCitationSource.handle(
+				toolArgs(embeddableAddCitationSource, {
+					classKey: 'book',
+					title: 'The Hobbit',
+					accessFile: { filepath: file },
+				}),
+				ctx,
+			);
+
+			expect(assertStructuredData(result)).toMatchObject({
+				partial: true,
+				accessFile: { fileTitle: 'The-Hobbit-(Book).pdf' },
+			});
+		});
 	});
 });

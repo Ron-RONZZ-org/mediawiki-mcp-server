@@ -4,6 +4,8 @@ import type { Tool } from '../../../runtime/tool.ts';
 import type { ToolContext } from '../../../runtime/context.ts';
 import { SOURCE_CLASS_KEYS, SOURCE_FIELD_NAMES } from './generated/fieldContract.ts';
 import { ITEM_ID } from './embeddableWrite.ts';
+import { UploadValidationError } from '../../../wikis/uploadDirs.ts';
+import { fetchLabels, resolveLanguage } from '../wikibase/wikibaseApi.ts';
 import {
 	collisionHitOf,
 	collisionHitResult,
@@ -128,6 +130,35 @@ const FIELD_VALIDATORS = {
 		.string()
 		.optional()
 		.describe('A non-direct access URL for the work (the classes that expose an access field).'),
+	accessFile: z
+		.object({
+			filepath: z
+				.string()
+				.min(1)
+				.describe(
+					'Path of the file inside an allowed upload directory — e.g. a chat attachment path from list_chat_files (the OWUI store path the writer mounts read-only).',
+				),
+			internal: z
+				.boolean()
+				.optional()
+				.describe(
+					'Internal use only (default true): gates the bytes to logged-in readers and records "All rights reserved". Set false only for a public-domain/open-licensed copy AND pass license.',
+				),
+			license: z
+				.string()
+				.regex(ITEM_ID, 'An item ID, such as Q42')
+				.optional()
+				.describe('Licence item id; required when internal is false.'),
+			language: z
+				.string()
+				.optional()
+				.describe('BCP-47 language of this access copy (defaults to the source language).'),
+			description: z.string().max(2000).optional().describe('File page description.'),
+		})
+		.optional()
+		.describe(
+			'Attach ONE file as the source access file (the Special:AddSource access editor). The bytes are uploaded through the wiki action=accessupload (the server names the file from the source label and sets the internal-use marker), then the access-file item and the has access file statement are written. Internal use is the default; a public file requires a licence Q-id. Idempotent: an already-linked file is a no-op (alreadyLinked). When the upload succeeds but the attach fails, the result is marked partial with the File: title.',
+		),
 	parent: z
 		.string()
 		.optional()
@@ -261,7 +292,7 @@ const inputSchema = {
 export const embeddableAddCitationSource: Tool<typeof inputSchema> = {
 	name: 'embeddable-add-citation-source',
 	description:
-		"Creates or updates a citable work item on a wiki with the EmbeddableContent extension, mirroring the Special:AddSource flow, and returns the item ID and latest revision. Requires the edit right. The item is classified under the classKey's class and carries the class's fields as statements — authors as attributed to statements (at least one, as item IDs), publisher and journal as item values, year on the date property at year precision, duration as whole seconds.\n\nThe item is created by the wiki's own AddSource service (action=addsource), so validation, statement building and the classic Source: page + sitelink are identical to the form; a class that does not expose a field rejects it, and the child classes require a parent of the right class. A book-excerpt with blank year or authors copies them from the parent book. A create that matches an existing item (the same authority id or URL, or a highly similar class-filtered label) is refused by the wiki's duplication guard, which returns the existing item instead of creating — cite or update that item, or set confirmDuplicate to force the create. A create whose label exactly matches an item whose sitelink points at another page returns a collision instead: choose collisionAction=reuse|delete|duplicate. When the wiki's response is lost and no item comes back, the tool checks whether an item with the submitted title exists and reports the outcome before you retry.\n\nAuthor names: pass authorNames (a pasted author list) without authorDecisions and the tool returns the batch resolution (parsed names + every local Person candidate) with authorConfirmationRequired=1 and writes NOTHING. Confirm each name and call the tool again with authorDecisions (and optional authorDetails) to create/reuse/update the Person items and the Source in one write. A match is never auto-accepted — common names such as John Smith are ambiguous. authorDetails supplies Person fields keyed by index or original name; authorUpdateExisting=true also updates the details of reused Persons. A group-of-humans author whose label is a person-name list is rejected unless it is declared explicitly as a collective with ORG:.\n\nSet qid to update an existing item instead: statements on the fields you provide are replaced, blank fields keep the existing statements, and the class is never changed. For the field table, property IDs and a ready-to-submit example, call embeddable-describe-entity-type first. Cite the created item on pages with {{#cite:Qxx}} (see the wiki's Help:Contributing/citations).",
+		"Creates or updates a citable work item on a wiki with the EmbeddableContent extension, mirroring the Special:AddSource flow, and returns the item ID and latest revision. Requires the edit right. The item is classified under the classKey's class and carries the class's fields as statements — authors as attributed to statements (at least one, as item IDs), publisher and journal as item values, year on the date property at year precision, duration as whole seconds.\n\nThe item is created by the wiki's own AddSource service (action=addsource), so validation, statement building and the classic Source: page + sitelink are identical to the form; a class that does not expose a field rejects it, and the child classes require a parent of the right class. A book-excerpt with blank year or authors copies them from the parent book. A create that matches an existing item (the same authority id or URL, or a highly similar class-filtered label) is refused by the wiki's duplication guard, which returns the existing item instead of creating — cite or update that item, or set confirmDuplicate to force the create. A create whose label exactly matches an item whose sitelink points at another page returns a collision instead: choose collisionAction=reuse|delete|duplicate. When the wiki's response is lost and no item comes back, the tool checks whether an item with the submitted title exists and reports the outcome before you retry.\n\nAuthor names: pass authorNames (a pasted author list) without authorDecisions and the tool returns the batch resolution (parsed names + every local Person candidate) with authorConfirmationRequired=1 and writes NOTHING. Confirm each name and call the tool again with authorDecisions (and optional authorDetails) to create/reuse/update the Person items and the Source in one write. A match is never auto-accepted — common names such as John Smith are ambiguous. authorDetails supplies Person fields keyed by index or original name; authorUpdateExisting=true also updates the details of reused Persons. A group-of-humans author whose label is a person-name list is rejected unless it is declared explicitly as a collective with ORG:.\n\nAccess file: pass accessFile (filepath + internal/license) and the tool attaches ONE file as the source access file. The bytes are uploaded through the wiki's action=accessupload (the file is named from the source label, the File: page text and the internal-use marker are written server-side), then the access-file item and the has access file statement are attached in a follow-up call. Internal use is the default and records \"All rights reserved\"; a public file requires a licence Q-id. The attach is idempotent (alreadyLinked) and never touches the other access entries; if the upload succeeds but the attach fails the result is marked partial with the File: title — report it, do not retry blindly. Get filepath from list_chat_files for a user-supplied attachment.\n\nSet qid to update an existing item instead: statements on the fields you provide are replaced, blank fields keep the existing statements, and the class is never changed. For the field table, property IDs and a ready-to-submit example, call embeddable-describe-entity-type first. Cite the created item on pages with {{#cite:Qxx}} (see the wiki's Help:Contributing/citations).",
 	inputSchema,
 	annotations: {
 		title: 'Add citation source',
@@ -275,6 +306,26 @@ export const embeddableAddCitationSource: Tool<typeof inputSchema> = {
 
 	async handle(args, ctx: ToolContext): Promise<CallToolResult> {
 		const mwn = await ctx.mwn();
+
+		// The optional access file: validate the request before any write, so a
+		// bad path or a public file without a licence never creates a source.
+		const accessFile = args.accessFile;
+		let resolvedPath: string | undefined;
+		if (accessFile !== undefined) {
+			if (accessFile.internal === false && accessFile.license === undefined) {
+				return ctx.format.invalidInput(
+					'a public access file needs a license item id (set internal: true for an internal-use copy).',
+				);
+			}
+			try {
+				resolvedPath = await ctx.uploadDirs.resolve(accessFile.filepath);
+			} catch (error) {
+				if (error instanceof UploadValidationError) {
+					return ctx.format.invalidInput(`Failed to add the access file: ${error.message}`);
+				}
+				throw error;
+			}
+		}
 
 		// The wiki's action=addsource module is the single implementation of
 		// the flow: field exposure, validation, statement building, the
@@ -333,6 +384,7 @@ export const embeddableAddCitationSource: Tool<typeof inputSchema> = {
 				created?: boolean | string;
 				updated?: boolean | string;
 				pageTitle?: string;
+				label?: string;
 				duplicate?: boolean | string;
 				duplicateOf?: string;
 				duplicateLabel?: string;
@@ -388,7 +440,7 @@ export const embeddableAddCitationSource: Tool<typeof inputSchema> = {
 				qid: args.qid?.toUpperCase(),
 			});
 		}
-		return ctx.format.ok({
+		const result: Record<string, unknown> = {
 			entityId: source.entityId,
 			entityType: source.entityType,
 			latestRevisionId: source.latestRevisionId,
@@ -396,6 +448,100 @@ export const embeddableAddCitationSource: Tool<typeof inputSchema> = {
 			...(source.updated === true || source.updated === '1' ? { updated: true } : {}),
 			...(typeof source.pageTitle === 'string' ? { pageTitle: source.pageTitle } : {}),
 			...(source.authors !== undefined ? { authors: source.authors } : {}),
-		});
+		};
+		if (accessFile === undefined) {
+			return ctx.format.ok(result);
+		}
+
+		// The wiki names the File: page from the SOURCE label (never the
+		// attachment's own name), so read it from the result; an older wiki
+		// without the label falls back to the submitted title, then to the
+		// stored term.
+		let label = typeof source.label === 'string' ? source.label : '';
+		if (label === '') {
+			label = args.title ?? '';
+		}
+		if (label === '') {
+			try {
+				const language = await resolveLanguage(ctx);
+				label = (await fetchLabels(mwn, [source.entityId], language)).get(source.entityId) ?? '';
+			} catch {
+				// Non-fatal: the partial result below tells the caller to attach
+				// the file through the form instead.
+				label = '';
+			}
+		}
+		if (label === '') {
+			return ctx.format.ok({
+				...result,
+				partial: true,
+				note: 'The source was written, but its label could not be read to name the access file. Upload it through Special:UpdateSource.',
+			});
+		}
+
+		let uploaded: { fileTitle: string; fileUrl: string };
+		try {
+			uploaded = await ctx.edit.submitAccessUpload(
+				mwn,
+				resolvedPath ?? '',
+				label,
+				accessFile.description ?? '',
+				accessFile.internal !== false,
+			);
+		} catch (error) {
+			return ctx.format.ok({
+				...result,
+				partial: true,
+				note: `The source was written, but the access file upload failed: ${
+					error instanceof Error ? error.message : String(error)
+				}. Upload it through Special:UpdateSource.`,
+			});
+		}
+
+		try {
+			const attachResponse = (await ctx.edit.submit(mwn, {
+				action: 'addsource',
+				class: args.classKey,
+				qid: source.entityId,
+				accessFile: JSON.stringify({
+					fileTitle: uploaded.fileTitle,
+					internal: accessFile.internal !== false,
+					...(accessFile.license !== undefined ? { license: accessFile.license } : {}),
+					...(accessFile.language !== undefined ? { language: accessFile.language } : {}),
+				}),
+				...(args.comment !== undefined && args.comment !== '' ? { summary: args.comment } : {}),
+			})) as {
+				source?: {
+					accessFile?: {
+						fileId?: string;
+						fileTitle?: string;
+						public?: string | boolean;
+						alreadyLinked?: string | boolean;
+					};
+				};
+			};
+			const attached = attachResponse.source?.accessFile ?? {};
+			return ctx.format.ok({
+				...result,
+				accessFile: {
+					fileTitle: uploaded.fileTitle,
+					fileUrl: uploaded.fileUrl,
+					...(attached.fileId !== undefined ? { fileId: attached.fileId } : {}),
+					// MediaWiki flags: present with '1' means true (a bare
+					// PHP boolean serialises to '').
+					public: attached.public === '1' || attached.public === true,
+					alreadyLinked: attached.alreadyLinked === '1' || attached.alreadyLinked === true,
+				},
+			});
+		} catch (error) {
+			return ctx.format.ok({
+				...result,
+				accessFile: { fileTitle: uploaded.fileTitle, fileUrl: uploaded.fileUrl },
+				partial: true,
+				note: `The file was uploaded but its access-file statement was not written: ${
+					error instanceof Error ? error.message : String(error)
+				}. Link it through Special:UpdateSource/${source.entityId}.`,
+			});
+		}
 	},
 };

@@ -80,7 +80,8 @@
                         "year",
                         "isbn",
                         "accessUrl",
-                        "wikidataId"
+                        "wikidataId",
+                        "accessFile"
                     ],
                     "requiredOnCreate": [
                         "title"
@@ -105,7 +106,8 @@
                         "accessUrl",
                         "wikidataId",
                         "openalexWorkId",
-                        "pubmedId"
+                        "pubmedId",
+                        "accessFile"
                     ],
                     "requiredOnCreate": [
                         "title"
@@ -121,7 +123,8 @@
                         "labelLanguage",
                         "authors",
                         "url",
-                        "wikidataId"
+                        "wikidataId",
+                        "accessFile"
                     ],
                     "requiredOnCreate": [
                         "title"
@@ -139,7 +142,8 @@
                         "url",
                         "year",
                         "parent",
-                        "wikidataId"
+                        "wikidataId",
+                        "accessFile"
                     ],
                     "requiredOnCreate": [
                         "title",
@@ -157,7 +161,8 @@
                         "authors",
                         "year",
                         "duration",
-                        "accessUrl"
+                        "accessUrl",
+                        "accessFile"
                     ],
                     "requiredOnCreate": [
                         "title"
@@ -174,7 +179,8 @@
                         "authors",
                         "year",
                         "duration",
-                        "accessUrl"
+                        "accessUrl",
+                        "accessFile"
                     ],
                     "requiredOnCreate": [
                         "title"
@@ -191,7 +197,8 @@
                         "authors",
                         "year",
                         "duration",
-                        "url"
+                        "url",
+                        "accessFile"
                     ],
                     "requiredOnCreate": [
                         "title"
@@ -208,7 +215,8 @@
                         "authors",
                         "year",
                         "url",
-                        "youtubeChannelId"
+                        "youtubeChannelId",
+                        "accessFile"
                     ],
                     "requiredOnCreate": [
                         "title"
@@ -227,7 +235,8 @@
                         "duration",
                         "url",
                         "youtubeVideoId",
-                        "parent"
+                        "parent",
+                        "accessFile"
                     ],
                     "requiredOnCreate": [
                         "title",
@@ -248,7 +257,8 @@
                         "chapters",
                         "year",
                         "accessUrl",
-                        "parent"
+                        "parent",
+                        "accessFile"
                     ],
                     "requiredOnCreate": [
                         "title",
@@ -269,7 +279,8 @@
                         "year",
                         "url",
                         "accessUrl",
-                        "wikidataId"
+                        "wikidataId",
+                        "accessFile"
                     ],
                     "requiredOnCreate": [
                         "title"
@@ -291,7 +302,8 @@
                         "year",
                         "url",
                         "accessUrl",
-                        "wikidataId"
+                        "wikidataId",
+                        "accessFile"
                     ],
                     "requiredOnCreate": [
                         "title"
@@ -313,7 +325,8 @@
                         "url",
                         "accessUrl",
                         "wikidataId",
-                        "openalexWorkId"
+                        "openalexWorkId",
+                        "accessFile"
                     ],
                     "requiredOnCreate": [
                         "title"
@@ -333,7 +346,8 @@
                         "year",
                         "url",
                         "accessUrl",
-                        "wikidataId"
+                        "wikidataId",
+                        "accessFile"
                     ],
                     "requiredOnCreate": [
                         "title"
@@ -353,7 +367,8 @@
                         "year",
                         "url",
                         "accessUrl",
-                        "wikidataId"
+                        "wikidataId",
+                        "accessFile"
                     ],
                     "requiredOnCreate": [
                         "title"
@@ -372,7 +387,8 @@
                         "year",
                         "url",
                         "accessUrl",
-                        "wikidataId"
+                        "wikidataId",
+                        "accessFile"
                     ],
                     "requiredOnCreate": [
                         "title"
@@ -390,7 +406,8 @@
                         "year",
                         "url",
                         "accessUrl",
-                        "wikidataId"
+                        "wikidataId",
+                        "accessFile"
                     ],
                     "requiredOnCreate": [
                         "title"
@@ -408,7 +425,8 @@
                         "patentNumber",
                         "year",
                         "url",
-                        "wikidataId"
+                        "wikidataId",
+                        "accessFile"
                     ],
                     "requiredOnCreate": [
                         "title"
@@ -429,7 +447,8 @@
                         "international",
                         "year",
                         "url",
-                        "wikidataId"
+                        "wikidataId",
+                        "accessFile"
                     ],
                     "requiredOnCreate": [
                         "title"
@@ -449,7 +468,8 @@
                         "international",
                         "year",
                         "url",
-                        "wikidataId"
+                        "wikidataId",
+                        "accessFile"
                     ],
                     "requiredOnCreate": [
                         "title"
@@ -469,7 +489,8 @@
                         "international",
                         "year",
                         "url",
-                        "wikidataId"
+                        "wikidataId",
+                        "accessFile"
                     ],
                     "requiredOnCreate": [
                         "title"
@@ -488,7 +509,8 @@
                         "international",
                         "year",
                         "url",
-                        "wikidataId"
+                        "wikidataId",
+                        "accessFile"
                     ],
                     "requiredOnCreate": [
                         "title"
@@ -506,7 +528,8 @@
                         "publisher",
                         "year",
                         "url",
-                        "wikidataId"
+                        "wikidataId",
+                        "accessFile"
                     ],
                     "requiredOnCreate": [
                         "title"
@@ -525,7 +548,8 @@
                         "year",
                         "url",
                         "accessUrl",
-                        "wikidataId"
+                        "wikidataId",
+                        "accessFile"
                     ],
                     "requiredOnCreate": [
                         "title"
@@ -542,7 +566,8 @@
                         "authors",
                         "year",
                         "url",
-                        "wikidataId"
+                        "wikidataId",
+                        "accessFile"
                     ],
                     "requiredOnCreate": [
                         "title"
@@ -561,7 +586,8 @@
                         "year",
                         "url",
                         "accessUrl",
-                        "wikidataId"
+                        "wikidataId",
+                        "accessFile"
                     ],
                     "requiredOnCreate": [
                         "title"
@@ -577,7 +603,8 @@
                         "labelLanguage",
                         "authors",
                         "year",
-                        "accessUrl"
+                        "accessUrl",
+                        "accessFile"
                     ],
                     "requiredOnCreate": [
                         "title"
@@ -595,7 +622,8 @@
                         "year",
                         "url",
                         "accessUrl",
-                        "wikidataId"
+                        "wikidataId",
+                        "accessFile"
                     ],
                     "requiredOnCreate": [
                         "title"
