@@ -42,6 +42,13 @@ export const imageFactsSchema = {
 		.max(250)
 		.optional()
 		.describe('Additional license information, free text (attribution, terms, credits).'),
+	rightsBasis: z
+		.string()
+		.regex(/^Q[1-9]\d*$/)
+		.optional()
+		.describe(
+			'Rights-basis item ID (Q<n>) — the legal ground for the reproduction, written as its own statement. Resolve the label with embeddable-describe-entity-type(kind="image-facts") rightBasis map. Citation exception and author permission also add the File-page notice and the default additional license information; a licence/PD/own-work basis records the basis only.',
+		),
 	sourceEntity: z
 		.string()
 		.regex(/^Q[1-9]\d*$/)
@@ -68,6 +75,7 @@ export type ImageFactsClearField =
 	| 'author'
 	| 'authorEntity'
 	| 'licenseInfo'
+	| 'rightsBasis'
 	| 'sourceEntity'
 	| 'sourceText'
 	| 'sourceUrl';
@@ -81,6 +89,7 @@ export const imageFactsClearSchema = {
 				'author',
 				'authorEntity',
 				'licenseInfo',
+				'rightsBasis',
 				'sourceEntity',
 				'sourceText',
 				'sourceUrl',
@@ -98,6 +107,7 @@ export interface ImageFacts {
 	author?: string;
 	authorEntity?: string;
 	licenseInfo?: string;
+	rightsBasis?: string;
 	sourceEntity?: string;
 	sourceText?: string;
 	sourceUrl?: string;
@@ -172,6 +182,7 @@ export async function submitImageFacts(
 			...(facts.author?.trim() ? { author: facts.author.trim() } : {}),
 			...(facts.authorEntity?.trim() ? { authorEntity: facts.authorEntity.trim() } : {}),
 			...(facts.licenseInfo?.trim() ? { licenseInfo: facts.licenseInfo.trim() } : {}),
+			...(facts.rightsBasis?.trim() ? { rightsBasis: facts.rightsBasis.trim() } : {}),
 			...(facts.sourceEntity?.trim() ? { sourceEntity: facts.sourceEntity.trim() } : {}),
 			...(facts.sourceText?.trim() ? { sourceText: facts.sourceText.trim() } : {}),
 			...(facts.sourceUrl?.trim() ? { sourceUrl: facts.sourceUrl.trim() } : {}),

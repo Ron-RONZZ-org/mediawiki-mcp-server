@@ -20,7 +20,7 @@ const inputSchema = {
 export const uploadFile: Tool<typeof inputSchema> = {
 	name: 'upload-file',
 	description:
-		"Uploads a file from the local disk into the wiki's File namespace and returns the resulting file title and URL. The upload appears in the wiki's upload log. The operator restricts which directories are readable; filepath must be an absolute path inside a configured upload directory, or the call fails before contacting the wiki. Fails if a file with the target title already exists (the wiki does not silently overwrite existing files). Optional license, author (free text or authorEntity as a Q-id), licenseInfo, source (sourceEntity as a Q-id or sourceText), sourceUrl and description attach the semantic image facts on wikis running the EmbeddableContent image itemization; on other wikis the upload succeeds with a warning and no item. To upload directly from a remote web address instead of a local path, use upload-file-from-url. To replace an existing file with a new revision, use update-file.",
+		"Uploads a file from the local disk into the wiki's File namespace and returns the resulting file title and URL. The upload appears in the wiki's upload log. The operator restricts which directories are readable; filepath must be an absolute path inside a configured upload directory, or the call fails before contacting the wiki. Fails if a file with the target title already exists (the wiki does not silently overwrite existing files). Optional license, author (free text or authorEntity as a Q-id), licenseInfo, rightsBasis (the legal ground for the reproduction), source (sourceEntity as a Q-id or sourceText), sourceUrl and description attach the semantic image facts on wikis running the EmbeddableContent image itemization; on other wikis the upload succeeds with a warning and no item. To upload directly from a remote web address instead of a local path, use upload-file-from-url. To replace an existing file with a new revision, use update-file.",
 	inputSchema,
 	annotations: {
 		title: 'Upload file',
@@ -43,6 +43,7 @@ export const uploadFile: Tool<typeof inputSchema> = {
 			author,
 			authorEntity,
 			licenseInfo,
+			rightsBasis,
 			sourceEntity,
 			sourceText,
 			sourceUrl,
@@ -80,6 +81,7 @@ export const uploadFile: Tool<typeof inputSchema> = {
 			author,
 			authorEntity,
 			licenseInfo,
+			rightsBasis,
 			sourceEntity,
 			sourceText,
 			sourceUrl,

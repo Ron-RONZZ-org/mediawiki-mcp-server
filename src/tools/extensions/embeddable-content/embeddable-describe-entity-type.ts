@@ -33,6 +33,8 @@ interface ImageFactsFieldContract {
 	};
 	/** label => item id (the wiki's preseeded license vocabulary) */
 	licenses?: Record<string, string>;
+	/** label => item id (the rights-basis combobox options) */
+	rightsBasis?: Record<string, string>;
 }
 
 /**

@@ -164,6 +164,7 @@ describe('upload-file', () => {
 				license: 'Q124',
 				author: 'NASA',
 				licenseInfo: 'Public domain, modified.',
+				rightsBasis: 'Q613',
 				sourceUrl: 'https://source.example/cat.jpg',
 			},
 			ctx,
@@ -180,6 +181,7 @@ describe('upload-file', () => {
 				license: 'Q124',
 				author: 'NASA',
 				licenseInfo: 'Public domain, modified.',
+				rightsBasis: 'Q613',
 				sourceUrl: 'https://source.example/cat.jpg',
 			}),
 		);

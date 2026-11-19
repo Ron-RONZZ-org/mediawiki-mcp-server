@@ -23,7 +23,7 @@ const inputSchema = {
 export const updateFileFromUrl: Tool<typeof inputSchema> = {
 	name: 'update-file-from-url',
 	description:
-		"Fetches a file from a remote web URL and uploads it as a new revision of an existing file, preserving prior revisions in the file history, and returns the file title and URL. The upload appears in the wiki's upload log. Replaces the file content (bytes) only; for editing the wikitext on a file's description page, use update-page. Optional license, author (free text or authorEntity as a Q-id), licenseInfo, source (sourceEntity as a Q-id or sourceText), sourceUrl and description replace those image-fact statements on the sitelinked item (mode=update; a blank field keeps the current value), and clear removes the named fields. Works whether or not the wiki has upload-by-URL enabled: the server retrieves the file and uploads it directly, falling back to wiki-side fetching only when it cannot reach the URL itself. Fails if no file exists at the target title; for the initial upload, use upload-file-from-url.",
+		"Fetches a file from a remote web URL and uploads it as a new revision of an existing file, preserving prior revisions in the file history, and returns the file title and URL. The upload appears in the wiki's upload log. Replaces the file content (bytes) only; for editing the wikitext on a file's description page, use update-page. Optional license, author (free text or authorEntity as a Q-id), licenseInfo, rightsBasis (the legal ground for the reproduction), source (sourceEntity as a Q-id or sourceText), sourceUrl and description replace those image-fact statements on the sitelinked item (mode=update; a blank field keeps the current value), and clear removes the named fields. Works whether or not the wiki has upload-by-URL enabled: the server retrieves the file and uploads it directly, falling back to wiki-side fetching only when it cannot reach the URL itself. Fails if no file exists at the target title; for the initial upload, use upload-file-from-url.",
 	inputSchema,
 	annotations: {
 		title: 'Update file from URL',
@@ -45,6 +45,7 @@ export const updateFileFromUrl: Tool<typeof inputSchema> = {
 			author,
 			authorEntity,
 			licenseInfo,
+			rightsBasis,
 			sourceEntity,
 			sourceText,
 			sourceUrl,
@@ -70,6 +71,7 @@ export const updateFileFromUrl: Tool<typeof inputSchema> = {
 			author,
 			authorEntity,
 			licenseInfo,
+			rightsBasis,
 			sourceEntity,
 			sourceText,
 			sourceUrl,
