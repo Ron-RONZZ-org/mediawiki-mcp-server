@@ -11,6 +11,7 @@ import { parseWikitext } from './parse-wikitext.ts';
 import { comparePages } from './compare-pages.ts';
 import { getFileInfo } from './get-file-info.ts';
 import { getFileContent } from './get-file-content.ts';
+import { getFileText } from './get-file-text.ts';
 import { renderSvg } from './render-svg.ts';
 // Deprecated aliases; removed in a future major release.
 import { getFile } from './get-file.ts';
@@ -55,6 +56,7 @@ export const standardTools: Tool<any>[] = [
 	comparePages,
 	getFileInfo,
 	getFileContent,
+	getFileText,
 	renderSvg,
 	// Deprecated aliases; removed in a future major release.
 	getFile,
