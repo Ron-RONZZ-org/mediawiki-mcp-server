@@ -81,6 +81,7 @@
                         "isbn",
                         "accessUrl",
                         "wikidataId",
+                        "bookSummary",
                         "accessFile"
                     ],
                     "requiredOnCreate": [
@@ -107,6 +108,7 @@
                         "wikidataId",
                         "openalexWorkId",
                         "pubmedId",
+                        "abstract",
                         "accessFile"
                     ],
                     "requiredOnCreate": [
