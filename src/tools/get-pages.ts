@@ -80,7 +80,6 @@ const inputSchema = {
 	full: z
 		.boolean()
 		.optional()
-		.default(false)
 		.describe(
 			'Read each whole page even when it exceeds the page-outline threshold. Without this, an oversized page comes back as its outline.',
 		),
@@ -226,7 +225,7 @@ async function fitToResponseBudget(
 	mwn: Mwn,
 	ctx: ToolContext,
 	entries: PageEntry[],
-	full: boolean,
+	full: boolean | undefined,
 	maxBytes: number | undefined,
 ): Promise<{ pages: PageEntry[]; omitted: string[] }> {
 	const budget = contentMaxBytes();

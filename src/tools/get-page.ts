@@ -42,7 +42,6 @@ const inputSchema = {
 	full: z
 		.boolean()
 		.optional()
-		.default(false)
 		.describe(
 			'Read the whole page even when it exceeds the page-outline threshold. Without this, a large whole-page read returns only the outline.',
 		),
