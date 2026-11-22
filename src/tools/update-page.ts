@@ -3,7 +3,8 @@ import type { CallToolResult } from '@modelcontextprotocol/server';
 import type { Mwn } from 'mwn';
 import type { Tool } from '../runtime/tool.ts';
 import type { ToolContext } from '../runtime/context.ts';
-import { sectionNotFound } from '../errors/tailoredErrors.ts';
+import { interfaceRightsHint, sectionNotFound } from '../errors/tailoredErrors.ts';
+import { resolveSectionName } from '../services/sectionService.ts';
 import { formatEditComment } from '../wikis/utils.ts';
 import { findReplaceSplice } from '../services/findReplace.ts';
 import { submitPageEdit } from '../services/pageEdit.ts';
@@ -65,7 +66,7 @@ const inputSchema = {
 		.nonnegative()
 		.optional()
 		.describe(
-			'Section number (0 = lead; 1..N = heading sections), from the section list get-page reports. Confines the write to that section: omit it to act on the whole page. A replace also takes out every subsection nested under the section; see removeSubsections.',
+			'Section number (0 = lead; 1..N = heading sections) or a heading name, from the section list get-page reports. Confines the write to that section: omit it to act on the whole page. A replace also takes out every subsection nested under the section; see removeSubsections.',
 		),
 	mode: z
 		.enum(['append', 'prepend'])
@@ -122,7 +123,9 @@ function writePlan(args: UpdatePageArgs): WritePlan {
 	// matches rather than by position, so it is unaffected either way. Section 0
 	// is the lead, which no insertion can move, so there is no ambiguity to
 	// resolve and nothing to require.
-	if (resolved === 'replace' && section !== undefined && section > 0 && latestId === undefined) {
+	const sectionNeedsRevision =
+		section !== undefined && (typeof section === 'string' || section > 0);
+	if (resolved === 'replace' && sectionNeedsRevision && latestId === undefined) {
 		return {
 			error: `Section ${section} names a different section once the page changes, so replacing a section needs latestId to say which revision the number was read from. Any get-page read that returns wikitext reports it as latestRevisionId.`,
 		};
@@ -238,7 +241,10 @@ export const updatePage: Tool<typeof inputSchema> = {
 		openWorldHint: true,
 	},
 	failureVerb: 'update page',
-	tailoredErrors: { nosuchsection: sectionNotFound },
+	tailoredErrors: {
+		nosuchsection: sectionNotFound,
+		'protectednamespace-interface': interfaceRightsHint,
+	},
 	target: (a) => a.title,
 
 	async handle(args, ctx: ToolContext): Promise<CallToolResult> {
@@ -247,9 +253,20 @@ export const updatePage: Tool<typeof inputSchema> = {
 			return ctx.format.invalidInput(plan.error);
 		}
 		const mwn = await ctx.mwn();
+		let writeArgs = args;
+		if (typeof args.section === 'string') {
+			const resolution = resolveSectionName(
+				args.section,
+				await ctx.sections.list(mwn, args.title, args.latestId),
+			);
+			if ('error' in resolution) {
+				return ctx.format.invalidInput(resolution.error);
+			}
+			writeArgs = { ...args, section: resolution.number };
+		}
 
 		if (plan.operation === 'find-replace') {
-			return findReplace(args, plan, ctx, mwn);
+			return findReplace(writeArgs, plan, ctx, mwn);
 		}
 
 		// Only a replace takes the section's subtree with it; a delta adds to the
@@ -258,19 +275,25 @@ export const updatePage: Tool<typeof inputSchema> = {
 			// Before the source-parsing guards: a source that is a truncated prefix
 			// may appear to drop its heading or subsections that simply lie past
 			// the cut, so their verdict on it would misdirect.
-			const unreadError = await unreadContentError(args, plan.source, mwn);
+			const unreadError = await unreadContentError(writeArgs, plan.source, mwn);
 			if (unreadError) {
 				return ctx.format.invalidInput(unreadError);
 			}
-			const headingError = await sectionHeadingError(args, plan.source, ctx.sections, mwn);
+			const headingError = await sectionHeadingError(writeArgs, plan.source, ctx.sections, mwn);
 			if (headingError) {
 				return ctx.format.invalidInput(headingError);
 			}
-			const removalError = await subsectionRemovalError(args, plan.source, ctx.sections, mwn);
+			const removalError = await subsectionRemovalError(writeArgs, plan.source, ctx.sections, mwn);
 			if (removalError) {
 				return ctx.format.invalidInput(removalError);
 			}
 		}
-		return submitPageEdit(ctx, mwn, 'update page', buildEditParams(ctx, args, plan), args);
+		return submitPageEdit(
+			ctx,
+			mwn,
+			'update page',
+			buildEditParams(ctx, writeArgs, plan),
+			writeArgs,
+		);
 	},
 };

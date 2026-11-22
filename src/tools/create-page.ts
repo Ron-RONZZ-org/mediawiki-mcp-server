@@ -4,6 +4,7 @@ import type { Tool } from '../runtime/tool.ts';
 import type { ToolContext } from '../runtime/context.ts';
 import { formatEditComment } from '../wikis/utils.ts';
 import { submitPageEdit } from '../services/pageEdit.ts';
+import { interfaceRightsHint } from '../errors/tailoredErrors.ts';
 
 const inputSchema = {
 	source: z.string().describe('Page content in the format specified by the contentModel parameter'),
@@ -36,6 +37,7 @@ export const createPage: Tool<typeof inputSchema> = {
 		openWorldHint: true,
 	},
 	failureVerb: 'create page',
+	tailoredErrors: { 'protectednamespace-interface': interfaceRightsHint },
 	target: (a) => a.title,
 
 	async handle(

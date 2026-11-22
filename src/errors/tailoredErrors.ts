@@ -53,3 +53,12 @@ export function tailoredError(
 	}
 	return wordings[code](message);
 }
+
+/** A MediaWiki-namespace write refused for lack of interface rights. */
+export function interfaceRightsHint(): TailoredError {
+	return {
+		category: 'permission_denied',
+		message:
+			'This interface page needs editinterface/editsitecss. If the session is a bot password, its grants must include editsiteconfig. See RonzzIT:Runbook/Wikibase/Rights.',
+	};
+}

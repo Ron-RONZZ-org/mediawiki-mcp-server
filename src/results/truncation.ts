@@ -1,5 +1,8 @@
 export const DEFAULT_CONTENT_MAX_BYTES = 75000;
 
+/** Default page size above which a whole-page read returns an outline instead of content. */
+export const DEFAULT_PAGE_OUTLINE_THRESHOLD = 15000;
+
 /** The response content byte budget in force, for callers that cap before rendering. */
 export function contentMaxBytes(): number {
 	const raw = process.env.MCP_CONTENT_MAX_BYTES;
@@ -9,6 +12,19 @@ export function contentMaxBytes(): number {
 	const parsed = Number.parseInt(raw, 10);
 	if (!Number.isFinite(parsed) || parsed <= 0) {
 		return DEFAULT_CONTENT_MAX_BYTES;
+	}
+	return parsed;
+}
+
+/** The page size (bytes) above which a whole-page read returns an outline by default. */
+export function pageOutlineThreshold(): number {
+	const raw = process.env.MCP_PAGE_OUTLINE_THRESHOLD;
+	if (raw === undefined || raw === '') {
+		return DEFAULT_PAGE_OUTLINE_THRESHOLD;
+	}
+	const parsed = Number.parseInt(raw, 10);
+	if (!Number.isFinite(parsed) || parsed <= 0) {
+		return DEFAULT_PAGE_OUTLINE_THRESHOLD;
 	}
 	return parsed;
 }
@@ -31,6 +47,14 @@ export type TruncationInfo =
 	| {
 			reason: 'content-truncated';
 			returnedBytes: number;
+			totalBytes: number;
+			itemNoun: string;
+			toolName: string;
+			sections?: string[];
+			remedyHint: string;
+	  }
+	| {
+			reason: 'content-omitted';
 			totalBytes: number;
 			itemNoun: string;
 			toolName: string;

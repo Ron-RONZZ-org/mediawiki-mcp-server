@@ -1,5 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
-import { SectionServiceImpl, toOutlineLines } from '../../src/services/sectionService.ts';
+import {
+	SectionServiceImpl,
+	resolveSectionName,
+	toOutlineLines,
+} from '../../src/services/sectionService.ts';
 
 function mockWithSections(sections: unknown[]) {
 	return {
@@ -112,5 +116,48 @@ describe('toOutlineLines', () => {
 
 	it('renders a page with no headings as the lead alone', () => {
 		expect(toOutlineLines([])).toEqual(['0 (Lead)']);
+	});
+});
+
+describe('toOutlineLines sizes', () => {
+	const entries = [
+		{ index: '1', level: 2, line: 'A', editable: true, byteOffset: 100 },
+		{ index: '2', level: 2, line: 'B', editable: true, byteOffset: 2100 },
+	];
+	it('appends the per-section size when the page total is known', () => {
+		expect(toOutlineLines(entries, 5000)).toEqual([
+			'0 (Lead) — 100 B',
+			'1 (A) — 2.0 KB',
+			'2 (B) — 2.8 KB',
+		]);
+	});
+	it('keeps the bare outline when no total is given', () => {
+		expect(toOutlineLines(entries)).toEqual(['0 (Lead)', '1 (A)', '2 (B)']);
+	});
+});
+
+describe('resolveSectionName', () => {
+	const entries = [
+		{ index: '1', level: 2, line: 'History', editable: true },
+		{ index: '2', level: 2, line: 'Geography', editable: true },
+		{ index: '3', level: 2, line: 'Changes', editable: true },
+		{ index: '4', level: 2, line: 'Changes', editable: true },
+	];
+	it('resolves a numeric string', () => {
+		expect(resolveSectionName('2', entries)).toEqual({ number: 2 });
+	});
+	it('resolves a heading name case-insensitively', () => {
+		expect(resolveSectionName('history', entries)).toEqual({ number: 1 });
+	});
+	it('resolves the lead', () => {
+		expect(resolveSectionName('Lead', entries)).toEqual({ number: 0 });
+	});
+	it('refuses an ambiguous name with the candidate numbers', () => {
+		const result = resolveSectionName('changes', entries);
+		expect('error' in result && result.error).toContain('3 (Changes)');
+	});
+	it('reports no match with the available names', () => {
+		const result = resolveSectionName('Nope', entries);
+		expect('error' in result && result.error).toContain('History');
 	});
 });
