@@ -65,7 +65,7 @@ describe('extensionPacks', () => {
 		expect(embeddable?.extensionNames).toEqual(['EmbeddableContent']);
 	});
 
-	it('exposes the seven EmbeddableContent tools', () => {
+	it('exposes the EmbeddableContent tools', () => {
 		const embeddable = extensionPacks.find((p) => p.id === 'embeddable');
 		expect(embeddable?.tools.map((t) => t.name)).toEqual([
 			'embeddable-add-special-content',
@@ -75,6 +75,9 @@ describe('extensionPacks', () => {
 			'embeddable-describe-entity-type',
 			'embeddable-resolve-authors',
 			'embeddable-authority-search',
+			'embeddable-dataset-upsert',
+			'embeddable-dataset-query',
+			'embeddable-dataset-status',
 		]);
 	});
 

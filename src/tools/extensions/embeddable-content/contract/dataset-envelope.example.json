@@ -1,0 +1,233 @@
+{
+    "manifest": {
+        "manifest_version": "1.0",
+        "dataset": {
+            "dataset_id": "example-2026",
+            "title": "Example 2026 meta-analysis table",
+            "description": "A small fixture that pins the shared manifest shape.",
+            "source_page": "Source:Example 2026",
+            "source_item": "Q123",
+            "doi": "10.1234/example.2026",
+            "year": 2026,
+            "licence": "Q1234",
+            "licence_label": "CC BY 4.0",
+            "rights_basis": "Q1235",
+            "rights_basis_label": "Citation exception",
+            "access_tier": "public",
+            "curator": "Example Curator",
+            "status": "draft"
+        },
+        "tables": [
+            {
+                "table_id": "example-2026-t1",
+                "table_number": "1",
+                "caption": "Table 1. Example effect sizes and sample sizes.",
+                "page": "12",
+                "page_start": 12,
+                "page_end": 12,
+                "table_bbox": [
+                    72,
+                    100,
+                    523,
+                    400
+                ],
+                "caption_bbox": [
+                    72,
+                    80,
+                    523,
+                    98
+                ],
+                "source_index": 1,
+                "pdf_file": "Example-2026.pdf",
+                "pdf_sha1": "0123456789abcdef0123456789abcdef01234567",
+                "pdf_revision": null,
+                "source_file_access": null,
+                "extractor": "pdf-figures-mcp",
+                "extractor_version": "0.2.0",
+                "method": "text-layer",
+                "confidence": 0.9,
+                "review_status": "unreviewed",
+                "reviewer": null,
+                "review_date": null,
+                "notes": null,
+                "panels": [
+                    {
+                        "panel_key": "p1",
+                        "panel_label": "Coaction",
+                        "panel_order": 1,
+                        "description": null
+                    }
+                ],
+                "columns": [
+                    {
+                        "panel_key": "p1",
+                        "column_key": "d",
+                        "label": "d′",
+                        "description": "Standardised effect size",
+                        "unit": null,
+                        "datatype": "float",
+                        "role": "measure",
+                        "missing_token": "—",
+                        "sort_order": 1,
+                        "column_parent_key": null,
+                        "column_level": 1
+                    },
+                    {
+                        "panel_key": "p1",
+                        "column_key": "n",
+                        "label": "n",
+                        "description": "Sample size",
+                        "unit": null,
+                        "datatype": "integer",
+                        "role": "dimension",
+                        "missing_token": "—",
+                        "sort_order": 2,
+                        "column_parent_key": null,
+                        "column_level": 1
+                    }
+                ],
+                "observations": [
+                    {
+                        "panel_key": "p1",
+                        "row_index": 1,
+                        "row_key": "role.coactor",
+                        "row_label": "Coactor",
+                        "row_path": "Role > Coactor",
+                        "row_parent_key": "role",
+                        "row_depth": 2,
+                        "column_key": "d",
+                        "value_float": 0.42,
+                        "value_int": null,
+                        "value_text": "0.42",
+                        "value_date": null,
+                        "flag_significant": false,
+                        "flag_note": null,
+                        "footnote_keys": [
+                            "fn1"
+                        ],
+                        "source_page": "12",
+                        "cell_bbox": [
+                            100,
+                            160,
+                            140,
+                            176
+                        ]
+                    },
+                    {
+                        "panel_key": "p1",
+                        "row_index": 1,
+                        "row_key": "role.coactor",
+                        "row_label": "Coactor",
+                        "row_path": "Role > Coactor",
+                        "row_parent_key": "role",
+                        "row_depth": 2,
+                        "column_key": "n",
+                        "value_float": null,
+                        "value_int": 30,
+                        "value_text": "30",
+                        "value_date": null,
+                        "flag_significant": false,
+                        "flag_note": null,
+                        "footnote_keys": [],
+                        "source_page": "12",
+                        "cell_bbox": [
+                            400,
+                            160,
+                            440,
+                            176
+                        ]
+                    },
+                    {
+                        "panel_key": "p1",
+                        "row_index": 2,
+                        "row_key": "role.target",
+                        "row_label": "Target",
+                        "row_path": "Role > Target",
+                        "row_parent_key": "role",
+                        "row_depth": 2,
+                        "column_key": "d",
+                        "value_float": 0.18,
+                        "value_int": null,
+                        "value_text": "0.18",
+                        "value_date": null,
+                        "flag_significant": false,
+                        "flag_note": null,
+                        "footnote_keys": [],
+                        "source_page": "12",
+                        "cell_bbox": [
+                            100,
+                            180,
+                            140,
+                            196
+                        ]
+                    },
+                    {
+                        "panel_key": "p1",
+                        "row_index": 2,
+                        "row_key": "role.target",
+                        "row_label": "Target",
+                        "row_path": "Role > Target",
+                        "row_parent_key": "role",
+                        "row_depth": 2,
+                        "column_key": "n",
+                        "value_float": null,
+                        "value_int": 25,
+                        "value_text": "25",
+                        "value_date": null,
+                        "flag_significant": false,
+                        "flag_note": null,
+                        "footnote_keys": [],
+                        "source_page": "12",
+                        "cell_bbox": [
+                            400,
+                            180,
+                            440,
+                            196
+                        ]
+                    }
+                ],
+                "footnotes": [
+                    {
+                        "footnote_key": "fn1",
+                        "marker_raw": "†",
+                        "text": "Value estimated from the source table.",
+                        "scope": "cell",
+                        "language": "en",
+                        "sort_order": 1,
+                        "status": "matched"
+                    }
+                ],
+                "extraction_runs": [
+                    {
+                        "run_id": "example-2026-t1-run1",
+                        "tool": "pdf-figures-mcp",
+                        "tool_version": "0.2.0",
+                        "model": null,
+                        "prompt_version": null,
+                        "started_at": "2026-11-22T16:59:00Z",
+                        "finished_at": "2026-11-22T17:00:00Z",
+                        "status": "ok",
+                        "confidence": 0.9,
+                        "report_json": null,
+                        "diff_json": null
+                    }
+                ]
+            }
+        ]
+    },
+    "validation_report": {
+        "status": "ok",
+        "checks": [],
+        "summary": {
+            "tables": 1,
+            "panels": 1,
+            "columns": 2,
+            "observations": 4,
+            "footnotes": 1
+        },
+        "tool": "pdf-figures-mcp",
+        "tool_version": "0.2.0",
+        "generated_at": "2026-11-22T17:00:00Z"
+    },
+    "manifest_path": "/figures/manifests/example-2026-t1.json"
+}

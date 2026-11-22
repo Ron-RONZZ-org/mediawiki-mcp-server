@@ -134,6 +134,9 @@ The Add\* forms of the EmbeddableContent extension expose typed entity creation 
 | `embeddable-get-embed-content` | Render an EmbeddableContent item through the embed API (the Special:Embed renderer). |
 | `embeddable-describe-entity-type` | Return the field tables and resolved property IDs behind the add tools, plus the image-facts vocabulary and preseeded license label => Q-id map (served by the wiki's `action=*-fields` endpoints). |
 | `embeddable-authority-search` | Read-only search of the wiki's AddSource/AddPerson authority cascade (Wikidata, OpenAlex, Crossref, Open Library, ORCID, dblp, YouTube) for works, people, collectives and software. `resolveLocal` adds publisher/journal/author candidates; `suggestedAddFields` feeds the add tools. Never writes. |
+| `embeddable-dataset-upsert` | Validate (`mode='validate'`) or apply (`mode='apply'`) a curated dataset manifest through the wiki's `action=datasetupsert`. The manifest is the shared contract (`dataset-manifest.schema.json`); a `pdf-figures-mcp` extractor envelope can be passed unchanged. Apply queues the `datasetApply` job and returns a `run_id`. Requires the `edit` right, plus `createpage`/`editentity` for the page and items. |
+| `embeddable-dataset-status` | Read a queued `datasetApply` run by `run_id` (`action=datasetstatus`): status, page revision, item IDs, row counts, warnings, validation report. |
+| `embeddable-dataset-query` | Read rows from the curated dataset store (`action=datasetquery`), filtered by `dataset_id`, `table_id`, `panel_key`, `column_key` and a full-text term, with pagination and `json`/`csv` output. The wiki enforces the access tier. |
 
 **[WikibaseCitation](https://www.mediawiki.org/wiki/Extension:WikibaseCitation) (custom extension)**
 
@@ -215,6 +218,8 @@ Tools marked 🔐 require authentication. Write tools (including extension-pack 
 - **Bot password.** Fallback when Extension:OAuth isn't installed. See [docs/configuration.md — bot password](docs/configuration.md#bot-password).
 
 `cargo-query` needs the **`Create, query and delete data through the Cargo extension`** grant on a bot password or OAuth consumer, even on a wiki that lets every user run Cargo queries. The Cargo extension is also detected on wiki.gg wikis, which run `LIBRARIAN`, wiki.gg's fork of Cargo.
+
+`embeddable-dataset-upsert` needs the `edit` right plus the rights its apply path uses (`createpage` for the `Dataset:` pages, `editentity` for the dataset/table items); `embeddable-dataset-query` and `embeddable-dataset-status` are read-only. The dataset contract (`dataset-manifest.schema.json`, `dataset-envelope.schema.json`, `validation-report.schema.json`, `dataset-store-fields.json`, and the golden example) is pinned under `src/tools/extensions/embeddable-content/contract/`; `npm run gen:dataset-contract` regenerates the TypeScript projection and `preflight` fails on drift. The extractor output (`pdf-figures-mcp extract_pdf_table`, follow-up) is the same envelope, so no shape adapter is needed.
 
 ## Installation
 

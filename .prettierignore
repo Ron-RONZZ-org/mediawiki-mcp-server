@@ -6,3 +6,6 @@
 # TypeScript projection IS formatted — the generator runs oxfmt on it. The
 # directory's README.md stays checked.
 src/tools/extensions/embeddable-content/contract/field-contract.json
+# Dataset contract (same pinning rule as the field contract).
+src/tools/extensions/embeddable-content/contract/dataset-*.json
+src/tools/extensions/embeddable-content/contract/validation-report.schema.json
