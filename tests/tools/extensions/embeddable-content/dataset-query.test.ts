@@ -42,9 +42,11 @@ describe('dataset-query', () => {
 		expect(assertStructuredData(result).rows).toEqual([{ table_id: 'example-2026-t1' }]);
 	});
 
-	it('returns csv text unchanged', async () => {
-		const rawRequest = vi.fn().mockResolvedValue({ data: 'row_index,value\n1,0.42\n' });
-		const ctx = contextOn(createMockMwn({ rawRequest }));
+	it('returns the api csv string', async () => {
+		const request = vi.fn().mockResolvedValue({
+			datasetquery: { csv: 'row_index,value\n1,0.42\n' },
+		});
+		const ctx = contextOn(createMockMwn({ request }));
 
 		const result = await datasetQuery.handle(
 			{ dataset_id: 'example-2026', limit: 500, offset: 0, format: 'csv' },

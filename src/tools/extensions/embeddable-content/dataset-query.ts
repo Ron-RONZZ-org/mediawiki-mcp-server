@@ -71,15 +71,14 @@ export const datasetQuery: Tool<typeof inputSchema> = {
 				params[key] = value;
 			}
 		}
-		// A csv response is not JSON; bypass mwn's JSON parser.
-		if (args.format === 'csv') {
-			const response = await mwn.rawRequest(params);
-			const text =
-				typeof response.data === 'string' ? response.data : JSON.stringify(response.data);
-			return ctx.format.ok({ format: 'csv', text });
-		}
 		// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- action=datasetquery response shape; trusted at this boundary
-		const response = (await mwn.request(params)) as { datasetquery?: Record<string, unknown> };
-		return ctx.format.ok(response.datasetquery ?? { rows: [] });
+		const response = (await mwn.request(params)) as {
+			datasetquery?: { rows?: unknown[]; datasets?: unknown[]; csv?: string };
+		};
+		const data = response.datasetquery ?? { rows: [] };
+		if (args.format === 'csv') {
+			return ctx.format.ok({ format: 'csv', text: data.csv ?? '' });
+		}
+		return ctx.format.ok(data);
 	},
 };
