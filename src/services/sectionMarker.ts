@@ -40,7 +40,7 @@ export function sectionContentTruncation({
 	} as const;
 
 	if (section === undefined) {
-		const outline = toOutlineLines(entries);
+		const outline = toOutlineLines(entries, totalBytes);
 		// A page whose only entry is the lead has no heading to narrow to, and
 		// section 0 of such a page is the page, so naming it returns these same
 		// bytes. Not naming get-page "again" keeps the sentence true for a
@@ -71,5 +71,36 @@ export function sectionContentTruncation({
 		sections: subsections.map((s) => `${s.index} (${s.line})`),
 		remedyHint:
 			'To read part of this section, call get-page again with one of the subsection numbers listed.',
+	};
+}
+
+/**
+ * Marker for a whole-page read that returned only the outline because the page
+ * is larger than the page-outline threshold. The way forward is a section read
+ * (or `full=true`), stated here because this is the response the caller sees
+ * exactly when the cost is incurred.
+ */
+export function omittedContentTruncation({
+	entries,
+	totalBytes,
+	itemNoun,
+	toolName,
+}: {
+	readonly entries: readonly SectionEntry[];
+	readonly totalBytes: number;
+	readonly itemNoun: string;
+	readonly toolName: string;
+}): TruncationInfo {
+	const outline = toOutlineLines(entries, totalBytes);
+	return {
+		reason: 'content-omitted',
+		totalBytes,
+		itemNoun,
+		toolName,
+		sections: outline,
+		remedyHint:
+			outline.length > 1
+				? 'The page is large, so only its outline is shown. Call get-page with section=N to read one section, or pass full=true to read the whole page (truncated at the byte cap).'
+				: 'The page has no sections, so pass full=true to read it (truncated at the byte cap).',
 	};
 }

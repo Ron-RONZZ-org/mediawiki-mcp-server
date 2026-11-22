@@ -6,11 +6,13 @@ import type { ToolContext } from '../runtime/context.ts';
 import { buildPageUrl } from '../wikis/utils.ts';
 import {
 	contentMaxBytes,
+	pageOutlineThreshold,
 	truncateByBytes,
 	type TruncatedContent,
 	type TruncationInfo,
 } from '../results/truncation.ts';
-import { sectionContentTruncation } from '../services/sectionMarker.ts';
+import { toOutlineLines } from '../services/sectionService.ts';
+import { omittedContentTruncation, sectionContentTruncation } from '../services/sectionMarker.ts';
 
 const MAX_TITLES = 50;
 
@@ -29,6 +31,7 @@ interface PageEntry {
 	contentModel?: string;
 	url?: string;
 	source?: string;
+	sections?: string[];
 	truncation?: TruncationInfo;
 }
 
@@ -74,6 +77,18 @@ const inputSchema = {
 		.describe(
 			'Follow wiki redirects. When true (default), redirect targets are returned with a "Redirected from:" line in the metadata. Set false to fetch redirect pseudo-pages as-is (sync-fidelity).',
 		),
+	full: z
+		.boolean()
+		.optional()
+		.describe(
+			'Read each whole page even when it exceeds the page-outline threshold. Without this, an oversized page comes back as its outline.',
+		),
+	maxBytes: z
+		.number()
+		.int()
+		.positive()
+		.optional()
+		.describe('Cap on the bytes returned for one body. Defaults to MCP_CONTENT_MAX_BYTES.'),
 } as const;
 
 type GetPagesArgs = z.infer<z.ZodObject<typeof inputSchema>>;
@@ -210,8 +225,11 @@ async function fitToResponseBudget(
 	mwn: Mwn,
 	ctx: ToolContext,
 	entries: PageEntry[],
+	full: boolean | undefined,
+	maxBytes: number | undefined,
 ): Promise<{ pages: PageEntry[]; omitted: string[] }> {
 	const budget = contentMaxBytes();
+	const threshold = pageOutlineThreshold();
 	const pages: PageEntry[] = [];
 	let used = 0;
 	let keptABody = false;
@@ -221,12 +239,27 @@ async function fitToResponseBudget(
 			continue;
 		}
 		const size = Buffer.byteLength(entry.source, 'utf8');
+		if (!full && size > threshold) {
+			const listed = await ctx.sections.list(mwn, entry.title ?? entry.requestedTitle ?? '');
+			pages.push({
+				...entry,
+				source: undefined,
+				sections: toOutlineLines(listed, size),
+				truncation: omittedContentTruncation({
+					entries: listed,
+					totalBytes: size,
+					itemNoun: 'wikitext',
+					toolName: 'get-pages',
+				}),
+			});
+			continue;
+		}
 		// Keyed on whether any body has been kept, not on the position: an
 		// earlier entry can carry no body at all — a revision whose text the wiki
 		// withholds — and dropping the first real one would answer a request for
 		// source with no source anywhere in the response.
 		if (!keptABody && size > budget) {
-			const truncated = truncateByBytes(entry.source, budget);
+			const truncated = truncateByBytes(entry.source, maxBytes ?? budget);
 			pages.push({
 				...entry,
 				source: truncated.text,
@@ -318,7 +351,7 @@ async function assembleEntries(
 
 export const getPages: Tool<typeof inputSchema> = {
 	name: 'get-pages',
-	description: `Returns multiple wiki pages in one call (wikitext source or metadata only). Suited to reading a cluster of related pages, diffing a page family, or syncing pages to local storage. Accepts up to ${MAX_TITLES} titles; missing pages are reported inline (not as errors). One byte budget covers the whole response, 75000 bytes by default: pages come back whole in the order asked for until it is spent, and the pages past that point are named rather than returned, so a follow-up call for those names fetches the rest. Only a first page larger than the budget on its own is truncated, with a marker reporting how much of it was returned and which sections a narrower read can target. For a single page or HTML output, use get-page. requestedTitle is included only when it differs from the resolved title.`,
+	description: `Returns multiple wiki pages in one call (wikitext source or metadata only). Suited to reading a cluster of related pages, diffing a page family, or syncing pages to local storage. Accepts up to ${MAX_TITLES} titles; missing pages are reported inline (not as errors). One byte budget covers the whole response, 75000 bytes by default: pages come back whole in the order asked for until it is spent, and the pages past that point are named rather than returned, so a follow-up call for those names fetches the rest. A page above the page-outline threshold comes back as its outline unless full=true; only a first page larger than the budget on its own is truncated, with a marker reporting how much of it was returned and which sections a narrower read can target. For a single page or HTML output, use get-page. requestedTitle is included only when it differs from the resolved title.`,
 	inputSchema,
 	annotations: {
 		title: 'Get pages',
@@ -342,7 +375,13 @@ export const getPages: Tool<typeof inputSchema> = {
 				: 'ids|timestamp|contentmodel';
 		const fetched = await fetchPages(mwn, ctx, args, rvprop);
 		const { entries, missing } = await assembleEntries(args, fetched, ctx);
-		const { pages, omitted } = await fitToResponseBudget(mwn, ctx, entries);
+		const { pages, omitted } = await fitToResponseBudget(
+			mwn,
+			ctx,
+			entries,
+			args.full,
+			args.maxBytes,
+		);
 
 		return ctx.format.ok({
 			pages,

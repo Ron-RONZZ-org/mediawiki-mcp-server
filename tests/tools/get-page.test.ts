@@ -72,8 +72,21 @@ describe('get-page', () => {
 
 	it('returns HTML using action=parse', async () => {
 		const mock = createMockMwn({
-			request: vi.fn().mockResolvedValue({
-				parse: { text: '<p>Hello</p>' },
+			request: vi.fn(async (params: { action?: string }) => {
+				if (params.action === 'query') {
+					return {
+						query: {
+							pages: [
+								{
+									pageid: 1,
+									title: 'Test Page',
+									revisions: [{ revid: 42, size: 100, contentmodel: 'wikitext' }],
+								},
+							],
+						},
+					};
+				}
+				return { parse: { text: '<p>Hello</p>' } };
 			}),
 		});
 		const ctx = contextOn(mock);
@@ -248,8 +261,21 @@ describe('get-page', () => {
 	});
 
 	it('forwards section as parse section for html content', async () => {
-		const request = vi.fn().mockResolvedValue({
-			parse: { text: '<p>Section HTML</p>' },
+		const request = vi.fn(async (params: { action?: string }) => {
+			if (params.action === 'query') {
+				return {
+					query: {
+						pages: [
+							{
+								pageid: 1,
+								title: 'Test Page',
+								revisions: [{ revid: 42, size: 100, contentmodel: 'wikitext' }],
+							},
+						],
+					},
+				};
+			}
+			return { parse: { text: '<p>Section HTML</p>' } };
 		});
 		const mock = createMockMwn({ request });
 		const ctx = contextOn(mock);
@@ -472,12 +498,25 @@ describe('get-page', () => {
 
 	it('attaches content-truncated truncation when HTML exceeds the byte cap', async () => {
 		const bigHtml = '<p>' + 'x'.repeat(85000) + '</p>';
-		const request = vi
-			.fn()
-			.mockResolvedValueOnce({ parse: { text: bigHtml } })
-			.mockResolvedValueOnce({
-				parse: { sections: [{ line: 'Heading', index: '1', level: '2' }] },
-			});
+		const request = vi.fn(async (params: { action?: string; prop?: string }) => {
+			if (params.action === 'query') {
+				return {
+					query: {
+						pages: [
+							{
+								pageid: 1,
+								title: 'Huge',
+								revisions: [{ revid: 42, size: 90000, contentmodel: 'wikitext' }],
+							},
+						],
+					},
+				};
+			}
+			if (params.prop === 'sections') {
+				return { parse: { sections: [{ line: 'Heading', index: '1', level: '2' }] } };
+			}
+			return { parse: { text: bigHtml } };
+		});
 		const mock = createMockMwn({ request });
 		const ctx = contextOn(mock, {
 			sections: new SectionServiceImpl(),
@@ -488,6 +527,7 @@ describe('get-page', () => {
 				title: 'Huge',
 				content: ContentFormat.html,
 				metadata: false,
+				full: true,
 			},
 			ctx,
 		);
@@ -613,8 +653,21 @@ describe('get-page', () => {
 
 	it('builds the page URL from the public siteinfo server, not the configured server', async () => {
 		const mock = createMockMwn({
-			request: vi.fn().mockResolvedValue({
-				parse: { text: '<p>Hello</p>', title: 'Test Page', pageid: 1 },
+			request: vi.fn(async (params: { action?: string }) => {
+				if (params.action === 'query') {
+					return {
+						query: {
+							pages: [
+								{
+									pageid: 1,
+									title: 'Test Page',
+									revisions: [{ revid: 42, size: 100, contentmodel: 'wikitext' }],
+								},
+							],
+						},
+					};
+				}
+				return { parse: { text: '<p>Hello</p>', title: 'Test Page', pageid: 1 } };
 			}),
 		});
 		const ctx = contextOn(mock, {
@@ -661,5 +714,72 @@ describe('get-page', () => {
 		expect(pageReads(mock)).toHaveLength(1);
 		expect(text).toContain('Page ID: 1');
 		expect(text).toContain('HTML: <p>Hello</p>');
+	});
+});
+
+describe('get-page outline-first', () => {
+	function bigPage(size: number) {
+		return wikiHolding({
+			page: {
+				pageid: 1,
+				title: 'Big',
+				revisions: [
+					{
+						revid: 42,
+						timestamp: '2026-01-01T00:00:00Z',
+						contentmodel: 'wikitext',
+						size,
+						content: 'x'.repeat(10),
+					},
+				],
+			},
+			sections: [
+				{ index: '1', level: '2', line: 'History', byteoffset: '100' },
+				{ index: '2', level: '2', line: 'Geography', byteoffset: '20000' },
+			],
+		});
+	}
+
+	it('returns the outline instead of the body for an oversized whole-page read', async () => {
+		const ctx = contextOn(bigPage(50000), { sections: new SectionServiceImpl() });
+		const text = assertStructuredSuccess(
+			await getPage.handle({ title: 'Big', content: ContentFormat.source, metadata: false }, ctx),
+		);
+		expect(text).not.toContain('Source:');
+		expect(text).toContain('Reason: content-omitted');
+		expect(text).toContain('1 (History) —');
+		expect(text).toContain('Remedy hint:');
+	});
+
+	it('full=true returns the body', async () => {
+		const ctx = contextOn(bigPage(50000), { sections: new SectionServiceImpl() });
+		const text = assertStructuredSuccess(
+			await getPage.handle(
+				{ title: 'Big', content: ContentFormat.source, metadata: false, full: true },
+				ctx,
+			),
+		);
+		expect(text).toContain('Source: xxxxxxxxxx');
+		expect(text).not.toContain('content-omitted');
+	});
+
+	it('content=outline always returns only the outline', async () => {
+		const ctx = contextOn(bigPage(50000), { sections: new SectionServiceImpl() });
+		const text = assertStructuredSuccess(
+			await getPage.handle({ title: 'Big', content: ContentFormat.outline, metadata: false }, ctx),
+		);
+		expect(text).toContain('Sections:');
+		expect(text).not.toContain('Source:');
+		expect(text).not.toContain('content-omitted');
+	});
+
+	it('accepts a heading name for section', async () => {
+		const mock = bigPage(50000);
+		const ctx = contextOn(mock, { sections: new SectionServiceImpl() });
+		await getPage.handle(
+			{ title: 'Big', content: ContentFormat.source, metadata: false, section: 'history' },
+			ctx,
+		);
+		expect(pageReads(mock)).toContainEqual(expect.objectContaining({ rvsection: 1 }));
 	});
 });

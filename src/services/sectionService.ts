@@ -88,6 +88,80 @@ export class SectionServiceImpl implements SectionService {
 // no `section=` value addresses them, so listing them shifts every later heading
 // away from its own number. Kept separate from the service so the richer entries
 // stay available internally to the guards and markers that need levels.
-export function toOutlineLines(entries: readonly SectionEntry[]): string[] {
-	return ['0 (Lead)', ...entries.filter((e) => e.editable).map((e) => `${e.index} (${e.line})`)];
+export function toOutlineLines(entries: readonly SectionEntry[], totalBytes?: number): string[] {
+	const offsets = entries
+		.map((e) => e.byteOffset)
+		.filter((o): o is number => o !== undefined)
+		.sort((a, b) => a - b);
+	const sizeOf = (e: SectionEntry): number | undefined => {
+		if (totalBytes === undefined || e.byteOffset === undefined) {
+			return undefined;
+		}
+		const next = offsets.find((o) => o > e.byteOffset!);
+		const size = (next ?? totalBytes) - e.byteOffset;
+		return size > 0 ? size : undefined;
+	};
+	const leadEnd = offsets[0];
+	const lead =
+		totalBytes !== undefined && leadEnd !== undefined && leadEnd > 0
+			? `0 (Lead) — ${formatBytes(leadEnd)}`
+			: '0 (Lead)';
+	return [
+		lead,
+		...entries
+			.filter((e) => e.editable)
+			.map((e) => {
+				const size = sizeOf(e);
+				return `${e.index} (${e.line})${size === undefined ? '' : ` — ${formatBytes(size)}`}`;
+			}),
+	];
+}
+
+function formatBytes(bytes: number): string {
+	return bytes >= 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${bytes} B`;
+}
+
+export type SectionResolution = { readonly number: number } | { readonly error: string };
+
+/**
+ * Resolves a heading name (or a numeric string) to the section number the
+ * wiki's `section=` parameter addresses. Exact match first, then
+ * case-insensitive; a name that matches several sections is refused with the
+ * candidate numbers rather than guessing.
+ */
+export function resolveSectionName(
+	section: string,
+	entries: readonly SectionEntry[],
+): SectionResolution {
+	const trimmed = section.trim();
+	if (/^\d+$/.test(trimmed)) {
+		return { number: Number.parseInt(trimmed, 10) };
+	}
+	if (trimmed.toLowerCase() === 'lead') {
+		return { number: 0 };
+	}
+	const editable = entries.filter((e) => e.editable);
+	const exact = editable.filter((e) => e.line === trimmed);
+	const matches =
+		exact.length > 0
+			? exact
+			: editable.filter((e) => e.line.toLowerCase() === trimmed.toLowerCase());
+	if (matches.length === 1) {
+		return { number: Number.parseInt(matches[0].index, 10) };
+	}
+	if (matches.length > 1) {
+		const options = matches.map((e) => `${e.index} (${e.line})`).join(', ');
+		return {
+			error: `Section name "${section}" matches ${matches.length} sections: ${options}. Pass the section number instead.`,
+		};
+	}
+	const available = editable
+		.slice(0, 15)
+		.map((e) => `${e.index} (${e.line})`)
+		.join('; ');
+	return {
+		error:
+			`No section named "${section}".` +
+			(available ? ` Available: ${available}${editable.length > 15 ? '; …' : ''}.` : ''),
+	};
 }
