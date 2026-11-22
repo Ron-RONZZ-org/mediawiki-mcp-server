@@ -1,0 +1,115 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://wikibase.ronzz.org/contract/validation-report.schema.json",
+    "title": "Dataset manifest validation report",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+        "status": {
+            "type": "string",
+            "enum": [
+                "ok",
+                "warnings",
+                "errors"
+            ]
+        },
+        "checks": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                    "code": {
+                        "type": "string",
+                        "enum": [
+                            "manifest-invalid",
+                            "referential-integrity",
+                            "pdf-provenance",
+                            "page-conflict",
+                            "page-too-large",
+                            "schema-mismatch",
+                            "store-error",
+                            "wikibase-write",
+                            "permission",
+                            "size-limit"
+                        ]
+                    },
+                    "severity": {
+                        "type": "string",
+                        "enum": [
+                            "error",
+                            "warning",
+                            "info"
+                        ]
+                    },
+                    "path": {
+                        "type": "string"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "hint": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "code",
+                    "severity",
+                    "path",
+                    "message"
+                ]
+            }
+        },
+        "summary": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "tables": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "panels": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "columns": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "observations": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "footnotes": {
+                    "type": "integer",
+                    "minimum": 0
+                }
+            },
+            "required": [
+                "tables",
+                "panels",
+                "columns",
+                "observations",
+                "footnotes"
+            ]
+        },
+        "tool": {
+            "type": "string"
+        },
+        "tool_version": {
+            "type": "string"
+        },
+        "generated_at": {
+            "type": "string",
+            "format": "date-time"
+        }
+    },
+    "required": [
+        "status",
+        "checks",
+        "summary",
+        "tool",
+        "tool_version",
+        "generated_at"
+    ]
+}

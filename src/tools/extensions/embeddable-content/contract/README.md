@@ -34,3 +34,36 @@ npm run gen:field-contract
 - `tests/tools/extensions/embeddable-content/field-contract.test.ts` enforces
   the same at test time, so a stale generated file is caught without a full CI
   run.
+
+## Dataset manifest contract (pinned)
+
+The `dataset-*.json` and `validation-report.schema.json` files in this
+directory are the **same pinned-copy rule** for the curated-dataset pipeline.
+They are emitted by the ronzz-wikibase EmbeddableContent extension
+(`maintenance/emitDatasetContract.php`) and copied verbatim:
+
+- `dataset-manifest.schema.json` — the manifest (one dataset, N tables).
+- `dataset-envelope.schema.json` — `{ manifest, validation_report, manifest_path }`,
+  the shape `pdf-figures-mcp extract_pdf_table` returns and `embeddable-dataset-upsert`
+  accepts.
+- `validation-report.schema.json` — the report shared by the extractor and the
+  wiki.
+- `dataset-store-fields.json` — manifest path → SQL column, `requiredFor`
+  (`validate` / `apply`) and the wiki-generated fields.
+- `dataset-manifest.example.json` — the golden fixture, validated by
+  `tests/tools/extensions/embeddable-content/dataset-contract.test.ts`.
+
+Refresh after a wiki-side change:
+
+```sh
+cp <ronzz-wikibase>/extensions/EmbeddableContent/contract/dataset-*.json \
+   src/tools/extensions/embeddable-content/contract/
+cp <ronzz-wikibase>/extensions/EmbeddableContent/contract/validation-report.schema.json \
+   src/tools/extensions/embeddable-content/contract/
+npm run gen:dataset-contract
+```
+
+`scripts/gen-dataset-contract.cjs` projects the contract to
+`generated/datasetContract.ts`; `preflight` re-runs it and CI fails on
+`git diff --exit-code`. The dataset contract is not formatted (`.prettierignore`)
+so a refresh stays byte-identical.

@@ -226,6 +226,7 @@ describe('WRITE_TOOL_NAMES', () => {
 				'embeddable-add-citation-source',
 				'embeddable-add-semantic-entity',
 				'embeddable-add-special-content',
+				'embeddable-dataset-upsert',
 				'move-page',
 				'protect-page',
 				'undelete-page',
