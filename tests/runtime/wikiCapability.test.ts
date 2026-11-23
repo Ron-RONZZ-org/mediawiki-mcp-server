@@ -227,6 +227,7 @@ describe('WRITE_TOOL_NAMES', () => {
 				'embeddable-add-semantic-entity',
 				'embeddable-add-special-content',
 				'embeddable-dataset-upsert',
+				'law-cite',
 				'move-page',
 				'protect-page',
 				'undelete-page',
