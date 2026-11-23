@@ -8,19 +8,23 @@ const inputSchema = {
 		.string()
 		.min(1)
 		.max(64)
-		.describe('The law key from law-search (LEGITEXT… in the FR corpus).'),
+		.describe(
+			'The law key from law-search (LEGITEXT…, CONSTEXT…, JURITEXT…, CETATEXT… in the FR corpus).',
+		),
 	article: z
 		.string()
 		.max(191)
 		.optional()
-		.describe('The article reference code (e.g. L111-1). Omit for the law row + its article list.'),
+		.describe(
+			'The article reference code (e.g. L111-1, 24, arrêt, 20). Omit for the law row + its article list.',
+		),
 	language: z.string().max(20).default('fr').describe('Corpus language (fr in v1).'),
 } as const;
 
 export const lawGet: Tool<typeof inputSchema> = {
 	name: 'law-get',
 	description:
-		"Reads one law or one article from the RonzzWikiBase law corpus through the wiki's action=lawget. Returns the law row (official identifier, title, nature, status, version dates, source URL) and, when `article` is given, the article row with its text, reference code, section path and status. Use law-search first to discover the law_key and reference code.",
+		"Reads one law or one article from the RonzzWikiBase law corpus through the wiki's action=lawget. Returns the law row (official identifier, title, nature, number, court, status, version dates, source URL) and, when `article` is given, the article row with its text, reference code, section path and status. A Conseil constitutionnel decision is split into its numbered considérants; a Cour de cassation or JADE decision is one row (arrêt/avis/ordonnance/décision). Use law-search first to discover the law_key and reference code.",
 	inputSchema,
 	annotations: {
 		title: 'Read a law or article',

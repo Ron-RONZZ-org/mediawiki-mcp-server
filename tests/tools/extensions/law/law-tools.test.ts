@@ -75,4 +75,26 @@ describe('law-cite', () => {
 		});
 		expect(assertStructuredData(result).qid).toBe('Q123');
 	});
+
+	it('cites a court decision without an article', async () => {
+		const submit = vi.fn().mockResolvedValue({
+			lawcite: {
+				qid: 'Q456',
+				ref: '<ref>{{#cite:Q456}}</ref>',
+				created: true,
+				law_key: 'CONSTEXT000017667855',
+				reference_code: 'décision',
+			},
+		});
+		const ctx = contextOn(createMockMwn(), { edit: { submit } as never });
+
+		const result = await lawCite.handle({ law: 'CONSTEXT000017667855' }, ctx);
+
+		expect(submit.mock.calls[0][1]).toMatchObject({
+			action: 'lawcite',
+			law: 'CONSTEXT000017667855',
+		});
+		expect(submit.mock.calls[0][1]).not.toHaveProperty('article');
+		expect(assertStructuredData(result).qid).toBe('Q456');
+	});
 });
