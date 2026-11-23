@@ -5,6 +5,7 @@ import { cargoPack } from './cargo/index.ts';
 import { neowikiPack } from './neowiki/index.ts';
 import { wikibasePack } from './wikibase/index.ts';
 import { embeddableContentPack } from './embeddable-content/index.ts';
+import { lawPack } from './law/index.ts';
 import { wikibaseCitationPack } from './wikibase-citation/index.ts';
 
 export type { ExtensionPack } from './types.ts';
@@ -100,6 +101,7 @@ export const extensionPacks: readonly ExtensionPack[] = [
 	neowikiPack,
 	wikibasePack,
 	embeddableContentPack,
+	lawPack,
 	wikibaseCitationPack,
 ];
 

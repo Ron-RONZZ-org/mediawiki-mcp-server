@@ -19,6 +19,7 @@ describe('extensionPacks', () => {
 			'neowiki',
 			'wikibase',
 			'embeddable',
+			'law',
 			'citation',
 		]);
 	});
